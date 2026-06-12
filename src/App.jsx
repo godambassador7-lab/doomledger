@@ -438,7 +438,7 @@ function App(){
   const [data,setData]=useState(DEMO);
   const [toasts,setToasts]=useState([]);
   const [hasGoal,setHasGoal]=useState(false);
-  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,loading:false,environment:'sandbox',products:[],staticHost:false});
+  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,loading:false,environment:'sandbox',products:[],staticHost:isStaticPagesHost()});
 
   const addToast=useCallback((icon,msg)=>{
     const id=Date.now()+Math.random();
@@ -548,11 +548,10 @@ function App(){
       addToast('ERROR',error.message);
       setPlaidStatus(p=>({...p,loading:false}));
     }
-  },[addToast,plaidStatus.connected,syncPlaidTransactions]);
+  },[addToast,plaidStatus.connected,plaidStatus.staticHost,syncPlaidTransactions]);
 
   useEffect(()=>{
     if(isStaticPagesHost()) {
-      setPlaidStatus(p=>({...p,configured:false,staticHost:true}));
       return;
     }
     apiRequest('/api/plaid/status')
