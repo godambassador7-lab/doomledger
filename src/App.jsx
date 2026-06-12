@@ -83,6 +83,35 @@ const DEMO = {
 // ===== HELPERS =====
 const fmtCur = (a) => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(a);
 const clamp = (n,min,max) => Math.min(max,Math.max(min,n));
+async function apiRequest(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || 'Request failed.');
+  return payload;
+}
+function loadPlaidLink() {
+  if (window.Plaid) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"]');
+    if (existing) {
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', reject, { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js';
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Plaid Link script failed to load.'));
+    document.body.appendChild(script);
+  });
+}
 const fmtTime = (d) => {
   const diff = d - Date.now();
   if(diff<=0) return {d:0,h:0,m:0,s:0,total:0};
@@ -313,7 +342,7 @@ function MissionSetup({onCreate}){
           React.createElement('div',{className:'milestone-text'},p===100?'Boss Clear':'Rank Up'))))));
 }
 
-function HomeScreen({data,onEditGoal}){
+function HomeScreen({data,onEditGoal,onLinkBank,plaidStatus}){
   const saved=data.members.reduce((s,m)=>s+m.contribution,0);
   const days=Math.floor((data.squad.deadline-Date.now())/864e5);
   const pace=Math.max(0,(data.squad.goalAmount-saved)/Math.max(1,days));
@@ -335,11 +364,14 @@ function HomeScreen({data,onEditGoal}){
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},mission.xp),React.createElement('div',{className:'preview-label'},'XP')),
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},fmtCur(mission.pledge)),React.createElement('div',{className:'preview-label'},'Weekly')))),
     data.alerts.map(a=>React.createElement(AlertBanner,{key:a.id,alert:a})),
+    !plaidStatus.configured&&React.createElement('div',{className:'alert alert-warning'},
+      React.createElement('span',{className:'alert-icon'},'API'),
+      React.createElement('span',{className:'alert-text'},React.createElement('strong',null,'Plaid setup needed. '),'Copy .env.example to .env and add your Sandbox keys before linking a bank.')),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconZap),' Quick Actions'),
       React.createElement('div',{className:'quick-actions'},
         React.createElement('button',{className:'btn btn-primary'},React.createElement(IconPlus),' Log Savings Transfer'),
-        React.createElement('button',{className:'btn btn-secondary'},React.createElement(IconWallet),' Link Bank Account'),
+        React.createElement('button',{className:'btn btn-secondary',onClick:onLinkBank,disabled:plaidStatus.loading},React.createElement(IconWallet),plaidStatus.loading?'Connecting...':plaidStatus.connected?'Sync Bank Transactions':'Link Bank Account'),
         React.createElement('button',{className:'btn btn-secondary',onClick:onEditGoal},React.createElement(IconTarget),' Recalibrate Goal'))));
 }
 
@@ -405,6 +437,7 @@ function App(){
   const [data,setData]=useState(DEMO);
   const [toasts,setToasts]=useState([]);
   const [hasGoal,setHasGoal]=useState(false);
+  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,loading:false,environment:'sandbox',products:[]});
 
   const addToast=useCallback((icon,msg)=>{
     const id=Date.now()+Math.random();
@@ -448,6 +481,76 @@ function App(){
     addToast('LAUNCH','Mission deployed: '+goal.name);
   },[addToast]);
 
+  const syncPlaidTransactions=useCallback(async()=>{
+    const result=await apiRequest('/api/transactions');
+    const incoming=[...result.added,...result.modified];
+    if(!incoming.length) {
+      addToast('SYNC','No new bank transactions found.');
+      return;
+    }
+
+    setData(p=>{
+      const byId=new Map(p.transactions.map(tx=>[tx.id,tx]));
+      incoming.forEach(tx=>byId.set(tx.id,{...tx,timestamp:new Date(tx.timestamp)}));
+      return {
+        ...p,
+        transactions:[...byId.values()].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)),
+        alerts:[
+          {id:'a_plaid_'+Date.now(),type:'success',message:'Synced '+incoming.length+' transaction'+(incoming.length===1?'':'s')+' from Plaid.',timestamp:new Date()},
+          ...p.alerts,
+        ],
+      };
+    });
+    setTab('activity');
+    addToast('SYNC','Bank transactions synced.');
+  },[addToast]);
+
+  const handleLinkBank=useCallback(async()=>{
+    setPlaidStatus(p=>({...p,loading:true}));
+    try {
+      if(plaidStatus.connected) {
+        try {
+          await syncPlaidTransactions();
+        } finally {
+          setPlaidStatus(p=>({...p,loading:false}));
+        }
+        return;
+      }
+
+      await loadPlaidLink();
+      const { link_token: linkToken }=await apiRequest('/api/create_link_token',{method:'POST'});
+      const handler=window.Plaid.create({
+        token:linkToken,
+        onSuccess:async(publicToken)=>{
+          try {
+            await apiRequest('/api/exchange_public_token',{
+              method:'POST',
+              body:JSON.stringify({public_token:publicToken}),
+            });
+            setPlaidStatus(p=>({...p,connected:true}));
+            addToast('LINK','Bank account linked.');
+            await syncPlaidTransactions();
+          } catch (error) {
+            addToast('ERROR',error.message);
+          } finally {
+            setPlaidStatus(p=>({...p,loading:false}));
+          }
+        },
+        onExit:()=>setPlaidStatus(p=>({...p,loading:false})),
+      });
+      handler.open();
+    } catch (error) {
+      addToast('ERROR',error.message);
+      setPlaidStatus(p=>({...p,loading:false}));
+    }
+  },[addToast,plaidStatus.connected,syncPlaidTransactions]);
+
+  useEffect(()=>{
+    apiRequest('/api/plaid/status')
+      .then(status=>setPlaidStatus(p=>({...p,...status})))
+      .catch(()=>setPlaidStatus(p=>({...p,configured:false})));
+  },[]);
+
   useEffect(()=>{
     const main=document.querySelector('.main');
     if(main) main.scrollTop=0;
@@ -463,11 +566,11 @@ function App(){
   const renderScreen=()=>{
     if(!hasGoal) return React.createElement(MissionSetup,{onCreate:handleCreateGoal});
     switch(tab){
-      case 'home':return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false)});
+      case 'home':return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,plaidStatus});
       case 'squad':return React.createElement(SquadScreen,{data,onVote:handleVote});
       case 'activity':return React.createElement(ActivityScreen,{data});
       case 'leaderboard':return React.createElement(LeaderboardScreen,{data});
-      default:return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false)});
+      default:return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,plaidStatus});
     }
   };
 
