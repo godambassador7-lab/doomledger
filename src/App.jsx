@@ -83,6 +83,7 @@ const DEMO = {
 // ===== HELPERS =====
 const fmtCur = (a) => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(a);
 const clamp = (n,min,max) => Math.min(max,Math.max(min,n));
+const isStaticPagesHost = () => window.location.hostname.endsWith('github.io');
 async function apiRequest(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -364,9 +365,9 @@ function HomeScreen({data,onEditGoal,onLinkBank,plaidStatus}){
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},mission.xp),React.createElement('div',{className:'preview-label'},'XP')),
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},fmtCur(mission.pledge)),React.createElement('div',{className:'preview-label'},'Weekly')))),
     data.alerts.map(a=>React.createElement(AlertBanner,{key:a.id,alert:a})),
-    !plaidStatus.configured&&React.createElement('div',{className:'alert alert-warning'},
+    (!plaidStatus.configured||plaidStatus.staticHost)&&React.createElement('div',{className:'alert alert-warning'},
       React.createElement('span',{className:'alert-icon'},'API'),
-      React.createElement('span',{className:'alert-text'},React.createElement('strong',null,'Plaid setup needed. '),'Copy .env.example to .env and add your Sandbox keys before linking a bank.')),
+      React.createElement('span',{className:'alert-text'},React.createElement('strong',null,'Plaid setup needed. '),plaidStatus.staticHost?'GitHub Pages is static, so run the app locally with npm run dev to use the Plaid backend.':'Copy .env.example to .env and add your Sandbox keys before linking a bank.')),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconZap),' Quick Actions'),
       React.createElement('div',{className:'quick-actions'},
@@ -437,7 +438,7 @@ function App(){
   const [data,setData]=useState(DEMO);
   const [toasts,setToasts]=useState([]);
   const [hasGoal,setHasGoal]=useState(false);
-  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,loading:false,environment:'sandbox',products:[]});
+  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,loading:false,environment:'sandbox',products:[],staticHost:false});
 
   const addToast=useCallback((icon,msg)=>{
     const id=Date.now()+Math.random();
@@ -506,6 +507,10 @@ function App(){
   },[addToast]);
 
   const handleLinkBank=useCallback(async()=>{
+    if(plaidStatus.staticHost) {
+      addToast('LOCAL','Plaid requires the local backend. Run npm run dev on your machine.');
+      return;
+    }
     setPlaidStatus(p=>({...p,loading:true}));
     try {
       if(plaidStatus.connected) {
@@ -546,6 +551,10 @@ function App(){
   },[addToast,plaidStatus.connected,syncPlaidTransactions]);
 
   useEffect(()=>{
+    if(isStaticPagesHost()) {
+      setPlaidStatus(p=>({...p,configured:false,staticHost:true}));
+      return;
+    }
     apiRequest('/api/plaid/status')
       .then(status=>setPlaidStatus(p=>({...p,...status})))
       .catch(()=>setPlaidStatus(p=>({...p,configured:false})));
