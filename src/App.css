@@ -137,6 +137,7 @@ body {
   color: var(--bg-primary); box-shadow: 0 4px 20px rgba(0,240,255,0.25);
 }
 .btn-primary:active { transform: scale(0.97); }
+.btn:disabled { cursor: not-allowed; opacity: 0.55; }
 .btn-danger {
   background: linear-gradient(135deg, var(--accent-red), #ff0040);
   color: #fff; box-shadow: 0 4px 20px rgba(255,42,109,0.25);
