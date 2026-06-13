@@ -1,6 +1,8 @@
 ﻿import React, { useState, useEffect, useCallback } from 'react';
 import './App.css';
 
+const assetUrl = (name) => `${import.meta.env.BASE_URL}${name}`;
+
 // ===== SVG ICONS =====
 const IconHome = () => React.createElement('svg', {viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:'2',strokeLinecap:'round',strokeLinejoin:'round',className:'nav-icon'},
   React.createElement('path',{d:'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'}),
@@ -129,6 +131,11 @@ function Toast({toasts,onDismiss}){
       React.createElement('span',{className:'toast-icon'},t.icon),
       React.createElement('span',{className:'toast-text'},t.msg),
       React.createElement('button',{className:'toast-close',onClick:()=>onDismiss(t.id)},'Ã—'))));
+}
+
+function SplashScreen(){
+  return React.createElement('div',{className:'splash-screen','aria-label':'DoomLedger loading'},
+    React.createElement('img',{className:'splash-image',src:assetUrl('splash-screen.png'),alt:'DoomLedger loading'}));
 }
 
 function DoomClock({deadline,goal,current}){
@@ -438,6 +445,7 @@ function App(){
   const [data,setData]=useState(DEMO);
   const [toasts,setToasts]=useState([]);
   const [hasGoal,setHasGoal]=useState(false);
+  const [showSplash,setShowSplash]=useState(true);
   const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,loading:false,environment:'sandbox',products:[],staticHost:isStaticPagesHost()});
 
   const addToast=useCallback((icon,msg)=>{
@@ -564,6 +572,11 @@ function App(){
     if(main) main.scrollTop=0;
   },[tab,hasGoal]);
 
+  useEffect(()=>{
+    const timeout=setTimeout(()=>setShowSplash(false),1400);
+    return()=>clearTimeout(timeout);
+  },[]);
+
   const tabs=[
     {id:'home',label:'Command',icon:IconHome},
     {id:'squad',label:'Squad',icon:IconSquad},
@@ -583,9 +596,10 @@ function App(){
   };
 
   return React.createElement('div',{className:'app'},
+    showSplash&&React.createElement(SplashScreen),
     React.createElement(Toast,{toasts,onDismiss:dismissToast}),
     React.createElement('div',{className:'header'},
-      React.createElement('div',{className:'header-title'},'DOOMLEDGER'),
+      React.createElement('img',{className:'header-logo',src:assetUrl('doomledger-logo.png'),alt:'DoomLedger'}),
       React.createElement('div',{className:'header-status'},React.createElement('div',{className:'status-dot'}),'SYSTEM ONLINE')),
     React.createElement('div',{className:'main'},renderScreen()),
     hasGoal&&React.createElement('div',{className:'bottom-nav'},
