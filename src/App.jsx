@@ -412,14 +412,14 @@ function AccountConnectScreen({onConnect,onUseDemo,plaidStatus}){
           React.createElement('div',{className:'connect-core'},'BANK'),
           React.createElement('div',{className:'connect-ring ring-one'}),
           React.createElement('div',{className:'connect-ring ring-two'})),
-        React.createElement('div',{className:'connect-title'},plaidStatus.connected?'Account Connected':'Connect your ledger source'),
+        React.createElement('div',{className:'connect-title'},plaidStatus.connected?'Signal Array Connected':'Connecting to Signal Array'),
         React.createElement('p',{className:'connect-copy'},plaidStatus.staticHost
           ?'The live GitHub Pages site cannot run the private Plaid backend. Use the demo scan here, or run npm run dev locally to connect Plaid.'
           :plaidStatus.configured
             ?'Plaid Sandbox is ready. Link an account so DoomLedger can scan transactions and suggest missions.'
             :'Plaid keys are missing. Add them to .env, then restart npm run dev.'),
         React.createElement('button',{className:'btn btn-primary',onClick:onConnect,disabled:plaidStatus.loading||plaidStatus.staticHost||!plaidStatus.configured},
-          React.createElement(IconWallet),plaidStatus.loading?'Opening Plaid...':plaidStatus.connected?'Resync Account':'Connect Account'),
+          React.createElement(IconWallet),plaidStatus.loading?'Connecting to Signal Array...':plaidStatus.connected?'Resync Signal Array':'Connect Signal Array'),
         React.createElement('button',{className:'btn btn-secondary',onClick:onUseDemo},React.createElement(IconZap),' Use Demo Ledger Scan')),
       React.createElement('div',{className:'card'},
         React.createElement('div',{className:'card-title'},React.createElement(IconTarget),' What Gets Analyzed'),
