@@ -122,6 +122,22 @@ const fmtTime = (d) => {
 };
 const getStatus = (p) => p>=70?'safe':p>=40?'warning':'danger';
 const getEffClass = (e) => e>=0.7?'high':e>=0.5?'mid':'low';
+const getTransactionMission = (tx) => {
+  if(tx.type==='positive') return {label:'Shield Gain',detail:'Savings transfer reinforced the vault.'};
+  if(tx.type==='negative') return {label:'Threat Hit',detail:'Discretionary spend damaged mission pace.'};
+  return {label:'Supply Run',detail:'Essential ledger event recorded.'};
+};
+const getBadges = (data) => {
+  const saved=data.members.reduce((s,m)=>s+m.contribution,0);
+  const pct=data.squad.goalAmount?Math.round(saved/data.squad.goalAmount*100):0;
+  const positives=data.transactions.filter(t=>t.type==='positive').length;
+  return [
+    {name:'Debt Slayer',state:pct>=25?'earned':'locked',hint:'25% shield'},
+    {name:'Vault Builder',state:pct>=50?'earned':'locked',hint:'50% shield'},
+    {name:'No-Spend Streak',state:data.transactions.every(t=>t.type!=='negative')?'earned':'locked',hint:'No recent hits'},
+    {name:'Transfer Ritual',state:positives>=3?'earned':'locked',hint:'3 savings moves'},
+  ];
+};
 
 // ===== COMPONENTS =====
 
@@ -130,12 +146,35 @@ function Toast({toasts,onDismiss}){
     toasts.map(t=>React.createElement('div',{key:t.id,className:'toast'},
       React.createElement('span',{className:'toast-icon'},t.icon),
       React.createElement('span',{className:'toast-text'},t.msg),
-      React.createElement('button',{className:'toast-close',onClick:()=>onDismiss(t.id)},'Ã—'))));
+      React.createElement('button',{className:'toast-close',onClick:()=>onDismiss(t.id)},'x'))));
 }
 
 function SplashScreen(){
   return React.createElement('div',{className:'splash-screen','aria-label':'DoomLedger loading'},
-    React.createElement('img',{className:'splash-image',src:assetUrl('splash-screen.png'),alt:'DoomLedger loading'}));
+    React.createElement('img',{className:'splash-image',src:assetUrl('splash-screen.png'),alt:'DoomLedger loading'}),
+    React.createElement('div',{className:'splash-loader','aria-hidden':'true'},
+      React.createElement('div',{className:'splash-loader-fill'})));
+}
+
+function HudMetric({label,value,pct,tone='green'}){
+  return React.createElement('div',{className:`hud-metric ${tone}`},
+    React.createElement('div',{className:'hud-metric-top'},
+      React.createElement('span',null,label),
+      React.createElement('strong',null,value)),
+    React.createElement('div',{className:'hud-bar'},
+      React.createElement('div',{className:'hud-bar-fill',style:{width:clamp(pct,0,100)+'%'}})));
+}
+
+function HeaderHud({data,hasGoal}){
+  if(!hasGoal) return React.createElement('div',{className:'header-status'},React.createElement('div',{className:'status-dot'}),'SYSTEM ONLINE');
+  const saved=data.members.reduce((s,m)=>s+m.contribution,0);
+  const shield=data.squad.goalAmount?Math.round(saved/data.squad.goalAmount*100):0;
+  const threat=100-shield;
+  const xp=clamp(Math.round((data.squad.mission?.xp||0)/18),0,100);
+  return React.createElement('div',{className:'header-hud'},
+    React.createElement(HudMetric,{label:'Net Worth Shield',value:shield+'%',pct:shield,tone:'green'}),
+    React.createElement(HudMetric,{label:'Debt Threat',value:threat+'%',pct:threat,tone:threat>60?'red':'orange'}),
+    React.createElement(HudMetric,{label:'Savings XP',value:data.squad.mission?.xp||0,pct:xp,tone:'cyan'}));
 }
 
 function DoomClock({deadline,goal,current}){
@@ -180,9 +219,9 @@ function SquadShield({members,goal}){
 }
 
 function AlertBanner({alert}){
-  const icons={danger:'âš ï¸',warning:'ðŸ””',success:'âœ…'};
+  const icons={danger:'!',warning:'!',success:'OK'};
   return React.createElement('div',{className:`alert alert-${alert.type}`},
-    React.createElement('span',{className:'alert-icon'},icons[alert.type]||'â„¹ï¸'),
+    React.createElement('span',{className:'alert-icon'},icons[alert.type]||'INFO'),
     React.createElement('span',{className:'alert-text'},alert.message));
 }
 
@@ -198,7 +237,7 @@ function MemberCard({m}){
         m.isYou&&React.createElement('span',{className:'badge badge-cyan'},'You'),
         des&&React.createElement('span',{className:'deserter-badge'},'Deserter')),
       React.createElement('div',{className:'member-role'},
-        m.role+(des?' â€¢ Left '+Math.floor((Date.now()-m.desertedAt)/864e5)+'d ago':'')),
+        m.role+(des?' / Left '+Math.floor((Date.now()-m.desertedAt)/864e5)+'d ago':'')),
       React.createElement('div',{className:'member-bar'},
         React.createElement('div',{className:'member-bar-fill',style:{width:m.shieldHealth+'%',background:bc}}))),
     React.createElement('div',{className:'member-eff'},
@@ -236,29 +275,66 @@ function VoteCard({vote,members,onVote,uid}){
 }
 
 function TxItem({tx}){
-  const icons={positive:'ðŸ’°',negative:'ðŸ’¸',neutral:'ðŸ“‹'};
+  const icons={positive:'+$',negative:'-$',neutral:'OK'};
+  const mission=getTransactionMission(tx);
   return React.createElement('div',{className:`tx-item ${tx.type}`},
     React.createElement('div',{className:`tx-icon ${tx.type}`},icons[tx.type]),
     React.createElement('div',{className:'tx-details'},
       React.createElement('div',{className:'tx-merchant'},tx.merchant),
-      React.createElement('div',{className:'tx-cat'},tx.category)),
+      React.createElement('div',{className:'tx-cat'},tx.category),
+      React.createElement('div',{className:'tx-mission'},mission.detail)),
     React.createElement('div',null,
       React.createElement('div',{className:`tx-amt ${tx.type}`},(tx.amount>0?'+':'')+fmtCur(tx.amount)),
-      React.createElement('div',{className:`tx-impact ${tx.type}`},tx.impact)));
+      React.createElement('div',{className:`tx-impact ${tx.type}`},mission.label+' / '+tx.impact)));
 }
 
 function LBItem({rank,member,isWinner}){
   return React.createElement('div',{className:'lb-item'},
-    React.createElement('div',{className:`lb-rank ${rank===1?'gold':rank===2?'silver':rank===3?'bronze':'other'}`},rank===1?'ðŸ‘‘':rank),
+    React.createElement('div',{className:`lb-rank ${rank===1?'gold':rank===2?'silver':rank===3?'bronze':'other'}`},rank===1?'#1':rank),
     React.createElement('div',{className:'lb-info'},
       React.createElement('div',{className:'lb-name'},member.name,
         member.isYou&&React.createElement('span',{className:'badge badge-cyan'},'You'),
         member.status==='DESERTED'&&React.createElement('span',{className:'deserter-badge'},'Deserter')),
-      React.createElement('div',{className:'lb-sub'},fmtCur(member.contribution)+' saved â€¢ '+(member.efficiency*100).toFixed(0)+'% efficiency'),
+      React.createElement('div',{className:'lb-sub'},fmtCur(member.contribution)+' saved / '+(member.efficiency*100).toFixed(0)+'% efficiency'),
       isWinner&&React.createElement('div',{className:'de-badge'},React.createElement(IconCrown),' Defensive Engineer')),
     React.createElement('div',{className:'lb-score'},
       React.createElement('div',{className:'lb-score-val'},(member.efficiency*100).toFixed(0)),
       React.createElement('div',{className:'lb-score-lbl'},'Eff. Score')));
+}
+
+function QuestCard({data,onEditGoal}){
+  const saved=data.members.reduce((s,m)=>s+m.contribution,0);
+  const pct=data.squad.goalAmount?clamp(Math.round(saved/data.squad.goalAmount*100),0,100):0;
+  const remaining=Math.max(0,data.squad.goalAmount-saved);
+  const days=Math.max(1,Math.floor((data.squad.deadline-Date.now())/864e5));
+  const milestones=[25,50,75,100];
+  const rank=pct>=100?'Boss Clear':pct>=75?'Legend':pct>=50?'Veteran':pct>=25?'Scout':'Initiate';
+  return React.createElement('div',{className:'quest-card card'},
+    React.createElement('div',{className:'quest-header'},
+      React.createElement('div',null,
+        React.createElement('div',{className:'card-title'},React.createElement(IconTarget),' Active Mission'),
+        React.createElement('div',{className:'quest-name'},data.squad.name)),
+      React.createElement('button',{className:'mini-btn',onClick:onEditGoal},'Recalibrate')),
+    React.createElement('div',{className:'quest-progress'},
+      React.createElement('div',{className:'quest-progress-fill',style:{width:pct+'%'}}),
+      React.createElement('span',null,pct+'%')),
+    React.createElement('div',{className:'quest-meta'},
+      React.createElement('span',null,'Rank: '+rank),
+      React.createElement('span',null,'Remaining: '+fmtCur(remaining)),
+      React.createElement('span',null,'Deadline: '+days+'d')),
+    React.createElement('div',{className:'quest-milestones'},
+      milestones.map(m=>React.createElement('div',{key:m,className:`quest-node ${pct>=m?'earned':''}`},m+'%'))));
+}
+
+function BadgeRack({data}){
+  return React.createElement('div',{className:'card'},
+    React.createElement('div',{className:'card-title'},React.createElement(IconCrown),' Badge Rack'),
+    React.createElement('div',{className:'badge-rack'},
+      getBadges(data).map(b=>React.createElement('div',{key:b.name,className:`achievement ${b.state}`},
+        React.createElement('div',{className:'achievement-mark'},b.state==='earned'?'ON':'--'),
+        React.createElement('div',null,
+          React.createElement('div',{className:'achievement-name'},b.name),
+          React.createElement('div',{className:'achievement-hint'},b.hint))))));
 }
 
 // ===== SCREENS =====
@@ -350,14 +426,17 @@ function MissionSetup({onCreate}){
           React.createElement('div',{className:'milestone-text'},p===100?'Boss Clear':'Rank Up'))))));
 }
 
-function HomeScreen({data,onEditGoal,onLinkBank,plaidStatus}){
+function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,plaidStatus}){
   const saved=data.members.reduce((s,m)=>s+m.contribution,0);
   const days=Math.floor((data.squad.deadline-Date.now())/864e5);
   const pace=Math.max(0,(data.squad.goalAmount-saved)/Math.max(1,days));
   const you=data.members.find(m=>m.isYou);
   const mission=data.squad.mission;
+  const threatClass=(mission?.threat||'Critical').toLowerCase();
   return React.createElement('div',{className:'screen active'},
-    React.createElement(DoomClock,{deadline:data.squad.deadline,goal:data.squad.goalAmount,current:saved}),
+    React.createElement('div',{className:'command-grid'},
+      React.createElement(DoomClock,{deadline:data.squad.deadline,goal:data.squad.goalAmount,current:saved}),
+      React.createElement(QuestCard,{data,onEditGoal})),
     React.createElement(SquadShield,{members:data.members,goal:data.squad.goalAmount}),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconTarget),' Mission Parameters'),
@@ -368,9 +447,10 @@ function HomeScreen({data,onEditGoal,onLinkBank,plaidStatus}){
         React.createElement('div',{className:'stat-box'},React.createElement('div',{className:'stat-val'},((you?.efficiency||0)*100).toFixed(0)+'%'),React.createElement('div',{className:'stat-lbl'},'Your Eff.'))),
       mission&&React.createElement('div',{className:'mission-preview'},
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},mission.difficulty.toUpperCase()),React.createElement('div',{className:'preview-label'},'Mode')),
-        React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},mission.threat),React.createElement('div',{className:'preview-label'},'Threat')),
+        React.createElement('div',{className:`preview-cell threat-${threatClass}`},React.createElement('div',{className:'preview-value'},mission.threat),React.createElement('div',{className:'preview-label'},'Threat')),
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},mission.xp),React.createElement('div',{className:'preview-label'},'XP')),
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},fmtCur(mission.pledge)),React.createElement('div',{className:'preview-label'},'Weekly')))),
+    React.createElement(BadgeRack,{data}),
     data.alerts.map(a=>React.createElement(AlertBanner,{key:a.id,alert:a})),
     (!plaidStatus.configured||plaidStatus.staticHost)&&React.createElement('div',{className:'alert alert-warning'},
       React.createElement('span',{className:'alert-icon'},'API'),
@@ -378,7 +458,7 @@ function HomeScreen({data,onEditGoal,onLinkBank,plaidStatus}){
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconZap),' Quick Actions'),
       React.createElement('div',{className:'quick-actions'},
-        React.createElement('button',{className:'btn btn-primary'},React.createElement(IconPlus),' Log Savings Transfer'),
+        React.createElement('button',{className:'btn btn-primary',onClick:onLogSavings},React.createElement(IconPlus),' Log Savings Transfer'),
         React.createElement('button',{className:'btn btn-secondary',onClick:onLinkBank,disabled:plaidStatus.loading},React.createElement(IconWallet),plaidStatus.loading?'Connecting...':plaidStatus.connected?'Sync Bank Transactions':'Link Bank Account'),
         React.createElement('button',{className:'btn btn-secondary',onClick:onEditGoal},React.createElement(IconTarget),' Recalibrate Goal'))));
 }
@@ -404,23 +484,27 @@ function SquadScreen({data,onVote}){
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconAlert),' Squad Rules'),
       React.createElement('div',{className:'rules'},
-        React.createElement('p',null,'â€¢ ',React.createElement('strong',null,'Desertion Protocol:'),' Past contributions stay. Future liability redistributes.'),
-        React.createElement('p',null,'â€¢ ',React.createElement('strong',null,'Vote to Continue:'),' Unanimous vote required to dissolve. Default: continue.'),
-        React.createElement('p',null,'â€¢ ',React.createElement('strong',null,'Efficiency Score:'),' (Savings / Income) Ã— Consistency. Higher is better.'),
-        React.createElement('p',null,'â€¢ ',React.createElement('strong',null,'Defensive Engineer:'),' Awarded to highest efficiency on Invasion Day.'))));
+        React.createElement('p',null,'- ',React.createElement('strong',null,'Desertion Protocol:'),' Past contributions stay. Future liability redistributes.'),
+        React.createElement('p',null,'- ',React.createElement('strong',null,'Vote to Continue:'),' Unanimous vote required to dissolve. Default: continue.'),
+        React.createElement('p',null,'- ',React.createElement('strong',null,'Efficiency Score:'),' (Savings / Income) x Consistency. Higher is better.'),
+        React.createElement('p',null,'- ',React.createElement('strong',null,'Defensive Engineer:'),' Awarded to highest efficiency on Invasion Day.'))));
 }
 
-function ActivityScreen({data}){
+function ActivityScreen({data,onLinkBank}){
   return React.createElement('div',{className:'screen active'},
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconActivity),' Transaction Feed'),
       data.transactions.length===0
-        ?React.createElement('div',{className:'empty'},React.createElement('div',{className:'empty-icon'},'ðŸ“¡'),React.createElement('div',{className:'empty-text'},'No transactions detected.\nLink your bank to begin monitoring.'))
+        ?React.createElement('div',{className:'empty'},
+          React.createElement('div',{className:'empty-icon'},'SIGNAL'),
+          React.createElement('div',{className:'empty-title'},'Your ledger is silent'),
+          React.createElement('div',{className:'empty-text'},'Connect Plaid to awaken the vault and turn spending into mission events.'),
+          React.createElement('button',{className:'btn btn-secondary empty-action',onClick:onLinkBank},React.createElement(IconWallet),' Link Bank'))
         :data.transactions.map(tx=>React.createElement(TxItem,{key:tx.id,tx:tx}))),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconAlert),' Squad Alerts'),
       data.alerts.map(a=>React.createElement(AlertBanner,{key:a.id,alert:a})),
-      data.alerts.length===0&&React.createElement('div',{className:'empty'},React.createElement('div',{className:'empty-icon'},'âœ…'),React.createElement('div',{className:'empty-text'},'All sectors secure.\nNo active alerts.'))));
+      data.alerts.length===0&&React.createElement('div',{className:'empty'},React.createElement('div',{className:'empty-icon'},'CLEAR'),React.createElement('div',{className:'empty-title'},'All sectors secure'),React.createElement('div',{className:'empty-text'},'No active alerts.'))));
 }
 
 function LeaderboardScreen({data}){
@@ -458,7 +542,7 @@ function App(){
 
   const handleVote=useCallback(voteType=>{
     setData(p=>({...p,vote:{...p.vote,votes:{...p.vote.votes,'u_001':voteType}}}));
-    addToast(voteType==='CONTINUE'?'ðŸ›¡ï¸':'ðŸ³ï¸',voteType==='CONTINUE'?'Vote cast: Hold the Line':'Vote cast: Abandon Post');
+    addToast(voteType==='CONTINUE'?'SHIELD':'EXIT',voteType==='CONTINUE'?'Vote cast: Hold the Line':'Vote cast: Abandon Post');
   },[addToast]);
 
   const handleCreateGoal=useCallback(goal=>{
@@ -488,6 +572,28 @@ function App(){
     setTab('home');
     setHasGoal(true);
     addToast('LAUNCH','Mission deployed: '+goal.name);
+  },[addToast]);
+
+  const handleLogSavings=useCallback(()=>{
+    const amount=100;
+    setData(p=>{
+      const current=p.members.find(m=>m.isYou)?.contribution||0;
+      const next=clamp(current+amount,0,p.squad.goalAmount);
+      const shield=p.squad.goalAmount?clamp(Math.round(next/p.squad.goalAmount*100),0,100):0;
+      return {
+        ...p,
+        members:p.members.map(m=>m.isYou?{...m,contribution:next,shieldHealth:shield,efficiency:clamp(m.efficiency+0.02,0.1,1)}:m),
+        transactions:[
+          {id:'tx_manual_'+Date.now(),userId:'u_001',merchant:'Manual Savings Transfer',category:'SAVINGS',amount,type:'positive',impact:'+1% Shield',timestamp:new Date()},
+          ...p.transactions,
+        ],
+        alerts:[
+          {id:'a_save_'+Date.now(),type:'success',message:'Savings transfer logged. Shield integrity increased to '+shield+'%.',timestamp:new Date()},
+          ...p.alerts,
+        ],
+      };
+    });
+    addToast('SAVE','Savings transfer logged.');
   },[addToast]);
 
   const syncPlaidTransactions=useCallback(async()=>{
@@ -587,20 +693,22 @@ function App(){
   const renderScreen=()=>{
     if(!hasGoal) return React.createElement(MissionSetup,{onCreate:handleCreateGoal});
     switch(tab){
-      case 'home':return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,plaidStatus});
+      case 'home':return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,plaidStatus});
       case 'squad':return React.createElement(SquadScreen,{data,onVote:handleVote});
-      case 'activity':return React.createElement(ActivityScreen,{data});
+      case 'activity':return React.createElement(ActivityScreen,{data,onLinkBank:handleLinkBank});
       case 'leaderboard':return React.createElement(LeaderboardScreen,{data});
-      default:return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,plaidStatus});
+      default:return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,plaidStatus});
     }
   };
 
   return React.createElement('div',{className:'app'},
     showSplash&&React.createElement(SplashScreen),
+    React.createElement('div',{className:'ambient-grid','aria-hidden':'true'}),
+    React.createElement('div',{className:'scanline','aria-hidden':'true'}),
     React.createElement(Toast,{toasts,onDismiss:dismissToast}),
     React.createElement('div',{className:'header'},
       React.createElement('img',{className:'header-logo',src:assetUrl('doomledger-logo.png'),alt:'DoomLedger'}),
-      React.createElement('div',{className:'header-status'},React.createElement('div',{className:'status-dot'}),'SYSTEM ONLINE')),
+      React.createElement(HeaderHud,{data,hasGoal})),
     React.createElement('div',{className:'main'},renderScreen()),
     hasGoal&&React.createElement('div',{className:'bottom-nav'},
       tabs.map(t=>React.createElement('button',{
