@@ -138,6 +138,66 @@ const getBadges = (data) => {
     {name:'Transfer Ritual',state:positives>=3?'earned':'locked',hint:'3 savings moves'},
   ];
 };
+const buildMissionSuggestion = ({name,target,saved,days,pledge,difficulty,rationale}) => {
+  const safeTarget=Math.max(100,Math.round(target));
+  const safeSaved=clamp(Math.round(saved),0,safeTarget-1);
+  const safeDays=clamp(Math.round(days),7,365);
+  const safePledge=Math.max(25,Math.round(pledge));
+  const progress=Math.round(safeSaved/safeTarget*100);
+  const pledgePct=Math.min(100,Math.round(safePledge/Math.max(1,(safeTarget-safeSaved)/Math.max(1,Math.ceil(safeDays/7)))*100));
+  const mult={rookie:1,veteran:1.35,nightmare:1.75}[difficulty] || 1;
+  return {
+    name,
+    target:safeTarget,
+    saved:safeSaved,
+    days:safeDays,
+    pledge:safePledge,
+    difficulty,
+    xp:Math.round((progress*10+pledgePct*6+safeDays)*mult),
+    threat:progress>=70?'Contained':progress>=35?'Rising':'Critical',
+    rationale,
+  };
+};
+const generateMissionSuggestions = (transactions) => {
+  const txs=transactions.length?transactions:DEMO.transactions;
+  const positive=txs.filter(t=>t.amount>0).reduce((s,t)=>s+t.amount,0);
+  const negative=txs.filter(t=>t.amount<0);
+  const discretionary=negative
+    .filter(t=>/FOOD|DRINK|SHOPPING|MERCHANDISE|ENTERTAINMENT|UBER|STARBUCKS|AMAZON/i.test(t.category+' '+t.merchant))
+    .reduce((s,t)=>s+Math.abs(t.amount),0);
+  const essentials=negative.reduce((s,t)=>s+Math.abs(t.amount),0);
+  const seedSavings=Math.max(100,Math.round(positive*0.45));
+  const weeklyCut=Math.max(75,Math.round(discretionary*0.35));
+  return [
+    buildMissionSuggestion({
+      name:'Emergency Shield Fund',
+      target:Math.max(2500,essentials*8),
+      saved:seedSavings,
+      days:90,
+      pledge:Math.max(150,weeklyCut),
+      difficulty:'veteran',
+      rationale:'Builds a cash buffer from recent outflow patterns before the ledger takes bigger risks.',
+    }),
+    buildMissionSuggestion({
+      name:'Discretionary Spend Lockdown',
+      target:Math.max(1000,discretionary*6),
+      saved:Math.max(50,Math.round(seedSavings*0.35)),
+      days:45,
+      pledge:Math.max(100,weeklyCut),
+      difficulty:'nightmare',
+      rationale:'Targets the categories most likely to damage mission pace and converts cuts into savings XP.',
+    }),
+    buildMissionSuggestion({
+      name:'30-Day Vault Sprint',
+      target:Math.max(750,Math.round((positive+essentials)*0.6)),
+      saved:Math.max(25,Math.round(seedSavings*0.25)),
+      days:30,
+      pledge:Math.max(75,Math.round((positive+discretionary)*0.18)),
+      difficulty:'rookie',
+      rationale:'A fast first win that proves the account connection is generating useful ledger missions.',
+    }),
+  ];
+};
 
 // ===== COMPONENTS =====
 
@@ -339,14 +399,46 @@ function BadgeRack({data}){
 
 // ===== SCREENS =====
 
-function MissionSetup({onCreate}){
+function AccountConnectScreen({onConnect,onUseDemo,plaidStatus}){
+  return React.createElement('div',{className:'screen active connect-shell'},
+    React.createElement('div',{className:'setup-hero'},
+      React.createElement('div',{className:'setup-kicker'},'Ledger Scan Required'),
+      React.createElement('div',{className:'setup-title'},'Connect First. Choose Smarter.'),
+      React.createElement('p',{className:'setup-copy'},'DoomLedger analyzes your account activity before mission selection, then suggests goals based on spending pressure, transfer habits, and realistic weekly pace.')),
+    React.createElement('div',{className:'connect-grid'},
+      React.createElement('div',{className:'card connect-card'},
+        React.createElement('div',{className:'card-title'},React.createElement(IconWallet),' Account Link'),
+        React.createElement('div',{className:'connect-visual'},
+          React.createElement('div',{className:'connect-core'},'BANK'),
+          React.createElement('div',{className:'connect-ring ring-one'}),
+          React.createElement('div',{className:'connect-ring ring-two'})),
+        React.createElement('div',{className:'connect-title'},plaidStatus.connected?'Account Connected':'Connect your ledger source'),
+        React.createElement('p',{className:'connect-copy'},plaidStatus.staticHost
+          ?'The live GitHub Pages site cannot run the private Plaid backend. Use the demo scan here, or run npm run dev locally to connect Plaid.'
+          :plaidStatus.configured
+            ?'Plaid Sandbox is ready. Link an account so DoomLedger can scan transactions and suggest missions.'
+            :'Plaid keys are missing. Add them to .env, then restart npm run dev.'),
+        React.createElement('button',{className:'btn btn-primary',onClick:onConnect,disabled:plaidStatus.loading||plaidStatus.staticHost||!plaidStatus.configured},
+          React.createElement(IconWallet),plaidStatus.loading?'Opening Plaid...':plaidStatus.connected?'Resync Account':'Connect Account'),
+        React.createElement('button',{className:'btn btn-secondary',onClick:onUseDemo},React.createElement(IconZap),' Use Demo Ledger Scan')),
+      React.createElement('div',{className:'card'},
+        React.createElement('div',{className:'card-title'},React.createElement(IconTarget),' What Gets Analyzed'),
+        React.createElement('div',{className:'scan-list'},
+          ['Recurring outflows become threat pressure','Savings transfers become shield strength','Discretionary spending becomes lockdown missions','Weekly capacity becomes suggested pledge'].map((item,i)=>
+            React.createElement('div',{className:'scan-row',key:item},
+              React.createElement('span',{className:'scan-index'},String(i+1).padStart(2,'0')),
+              React.createElement('span',null,item)))))));
+}
+
+function MissionSetup({onCreate,suggestions,onBack}){
+  const first=suggestions[0];
   const [form,setForm]=useState({
-    name:'Emergency Fund',
-    target:'10000',
-    saved:'1200',
-    days:'90',
-    pledge:'300',
-    difficulty:'veteran'
+    name:first?.name || 'Emergency Fund',
+    target:String(first?.target || 10000),
+    saved:String(first?.saved || 1200),
+    days:String(first?.days || 90),
+    pledge:String(first?.pledge || 300),
+    difficulty:first?.difficulty || 'veteran'
   });
   const [error,setError]=useState('');
   const difficulty={
@@ -367,6 +459,14 @@ function MissionSetup({onCreate}){
   const xp=Math.round((progress*10+pledgePct*6+days)*difficulty[form.difficulty].mult);
   const threat=progress>=70?'Contained':progress>=35?'Rising':'Critical';
   const update=(key,value)=>setForm(p=>({...p,[key]:value}));
+  const applySuggestion=(mission)=>setForm({
+    name:mission.name,
+    target:String(mission.target),
+    saved:String(mission.saved),
+    days:String(mission.days),
+    pledge:String(mission.pledge),
+    difficulty:mission.difficulty,
+  });
   const submit=()=>{
     if(!form.name.trim()) return setError('Name the mission before deploying.');
     if(target<100) return setError('Set a target of at least $100.');
@@ -385,9 +485,20 @@ function MissionSetup({onCreate}){
   };
   return React.createElement('div',{className:'screen active setup-shell'},
     React.createElement('div',{className:'setup-hero'},
-      React.createElement('div',{className:'setup-kicker'},'Mission Control'),
-      React.createElement('div',{className:'setup-title'},'Build Your Financial Defense Plan'),
-      React.createElement('p',{className:'setup-copy'},'Create the ledger goal first. DoomLedger turns the target into a mission with shield progress, daily pace, XP rewards, and milestone ranks.')),
+      React.createElement('div',{className:'setup-kicker'},'Mission Suggestions Online'),
+      React.createElement('div',{className:'setup-title'},'Choose Your Financial Mission'),
+      React.createElement('p',{className:'setup-copy'},'These missions were generated after the ledger scan. Pick one, tune the numbers, then deploy.')),
+    React.createElement('div',{className:'suggestion-grid'},
+      suggestions.map((mission,i)=>React.createElement('button',{key:mission.name,type:'button',className:'suggestion-card',onClick:()=>applySuggestion(mission)},
+        React.createElement('div',{className:'suggestion-top'},
+          React.createElement('span',{className:'scan-index'},String(i+1).padStart(2,'0')),
+          React.createElement('span',{className:`suggestion-difficulty ${mission.difficulty}`},mission.difficulty)),
+        React.createElement('div',{className:'suggestion-name'},mission.name),
+        React.createElement('div',{className:'suggestion-stats'},
+          React.createElement('span',null,fmtCur(mission.target)),
+          React.createElement('span',null,mission.days+'d'),
+          React.createElement('span',null,fmtCur(mission.pledge)+'/wk')),
+        React.createElement('p',{className:'suggestion-reason'},mission.rationale)))),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconTarget),' Goal Loadout'),
       React.createElement('div',{className:'setup-grid'},
@@ -417,7 +528,8 @@ function MissionSetup({onCreate}){
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},threat),React.createElement('div',{className:'preview-label'},'Threat')),
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},xp),React.createElement('div',{className:'preview-label'},'Launch XP'))),
       error&&React.createElement('div',{className:'form-error'},error),
-      React.createElement('button',{className:'btn btn-primary',onClick:submit},React.createElement(IconShield),' Deploy Ledger Mission')),
+      React.createElement('button',{className:'btn btn-primary',onClick:submit},React.createElement(IconShield),' Deploy Ledger Mission'),
+      React.createElement('button',{className:'btn btn-secondary back-btn',onClick:onBack},React.createElement(IconWallet),' Rescan Account')),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconCrown),' Unlock Path'),
       React.createElement('div',{className:'milestone-list'},
@@ -529,6 +641,8 @@ function App(){
   const [data,setData]=useState(DEMO);
   const [toasts,setToasts]=useState([]);
   const [hasGoal,setHasGoal]=useState(false);
+  const [accountAnalyzed,setAccountAnalyzed]=useState(false);
+  const [suggestedMissions,setSuggestedMissions]=useState([]);
   const [showSplash,setShowSplash]=useState(true);
   const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,loading:false,environment:'sandbox',products:[],staticHost:isStaticPagesHost()});
 
@@ -539,6 +653,15 @@ function App(){
   },[]);
 
   const dismissToast=useCallback(id=>setToasts(p=>p.filter(t=>t.id!==id)),[]);
+
+  const markLedgerAnalyzed=useCallback((transactions, label='Ledger scan complete.')=>{
+    const missions=generateMissionSuggestions(transactions);
+    setSuggestedMissions(missions);
+    setAccountAnalyzed(true);
+    setHasGoal(false);
+    setTab('home');
+    addToast('SCAN',label);
+  },[addToast]);
 
   const handleVote=useCallback(voteType=>{
     setData(p=>({...p,vote:{...p.vote,votes:{...p.vote.votes,'u_001':voteType}}}));
@@ -601,7 +724,7 @@ function App(){
     const incoming=[...result.added,...result.modified];
     if(!incoming.length) {
       addToast('SYNC','No new bank transactions found.');
-      return;
+      return [];
     }
 
     setData(p=>{
@@ -618,7 +741,13 @@ function App(){
     });
     setTab('activity');
     addToast('SYNC','Bank transactions synced.');
+    return incoming;
   },[addToast]);
+
+  const handleUseDemoScan=useCallback(()=>{
+    setData(DEMO);
+    markLedgerAnalyzed(DEMO.transactions,'Demo ledger analyzed. Suggestions generated.');
+  },[markLedgerAnalyzed]);
 
   const handleLinkBank=useCallback(async()=>{
     if(plaidStatus.staticHost) {
@@ -629,7 +758,8 @@ function App(){
     try {
       if(plaidStatus.connected) {
         try {
-          await syncPlaidTransactions();
+          const synced=await syncPlaidTransactions();
+          markLedgerAnalyzed(synced.length?synced:data.transactions,'Account analyzed. Suggestions refreshed.');
         } finally {
           setPlaidStatus(p=>({...p,loading:false}));
         }
@@ -648,7 +778,8 @@ function App(){
             });
             setPlaidStatus(p=>({...p,connected:true}));
             addToast('LINK','Bank account linked.');
-            await syncPlaidTransactions();
+            const synced=await syncPlaidTransactions();
+            markLedgerAnalyzed(synced.length?synced:data.transactions,'Account connected and analyzed.');
           } catch (error) {
             addToast('ERROR',error.message);
           } finally {
@@ -662,7 +793,7 @@ function App(){
       addToast('ERROR',error.message);
       setPlaidStatus(p=>({...p,loading:false}));
     }
-  },[addToast,plaidStatus.connected,plaidStatus.staticHost,syncPlaidTransactions]);
+  },[addToast,data.transactions,markLedgerAnalyzed,plaidStatus.connected,plaidStatus.staticHost,syncPlaidTransactions]);
 
   useEffect(()=>{
     if(isStaticPagesHost()) {
@@ -691,7 +822,8 @@ function App(){
   ];
 
   const renderScreen=()=>{
-    if(!hasGoal) return React.createElement(MissionSetup,{onCreate:handleCreateGoal});
+    if(!accountAnalyzed) return React.createElement(AccountConnectScreen,{onConnect:handleLinkBank,onUseDemo:handleUseDemoScan,plaidStatus});
+    if(!hasGoal) return React.createElement(MissionSetup,{onCreate:handleCreateGoal,suggestions:suggestedMissions,onBack:()=>setAccountAnalyzed(false)});
     switch(tab){
       case 'home':return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,plaidStatus});
       case 'squad':return React.createElement(SquadScreen,{data,onVote:handleVote});
