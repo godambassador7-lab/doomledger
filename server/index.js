@@ -20,6 +20,7 @@ const plaidEnv = process.env.PLAID_ENV || 'sandbox';
 const products = (process.env.PLAID_PRODUCTS || 'transactions').split(',').map((p) => p.trim()).filter(Boolean);
 const countryCodes = (process.env.PLAID_COUNTRY_CODES || 'US').split(',').map((c) => c.trim()).filter(Boolean);
 const plaidConfigured = Boolean(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET);
+const maxPlaidItems = 2;
 
 const plaidClient = plaidConfigured
   ? new PlaidApi(new Configuration({
@@ -46,6 +47,24 @@ async function writeState(nextState) {
   await fs.writeFile(statePath, JSON.stringify(nextState, null, 2));
 }
 
+function getPlaidItems(state) {
+  if (Array.isArray(state.items)) {
+    return state.items.slice(0, maxPlaidItems);
+  }
+
+  if (state.accessToken) {
+    return [{
+      accessToken: state.accessToken,
+      itemId: state.itemId || 'legacy-item',
+      cursor: state.cursor || null,
+      connectedAt: state.connectedAt || null,
+      label: 'Signal Array 1',
+    }];
+  }
+
+  return [];
+}
+
 function requirePlaid(_req, res, next) {
   if (!plaidConfigured || !plaidClient) {
     return res.status(500).json({
@@ -55,7 +74,7 @@ function requirePlaid(_req, res, next) {
   return next();
 }
 
-function mapPlaidTransaction(tx) {
+function mapPlaidTransaction(tx, item) {
   const isOutflow = tx.amount > 0;
   const amount = isOutflow ? -tx.amount : Math.abs(tx.amount);
   const category = tx.personal_finance_category?.primary || tx.category?.[0] || 'OTHER';
@@ -67,7 +86,9 @@ function mapPlaidTransaction(tx) {
       : 'neutral';
 
   return {
-    id: tx.transaction_id,
+    id: `${item.itemId}:${tx.transaction_id}`,
+    sourceItemId: item.itemId,
+    sourceLabel: item.label,
     userId: 'u_001',
     merchant: tx.merchant_name || tx.name,
     category,
@@ -80,9 +101,14 @@ function mapPlaidTransaction(tx) {
 
 app.get('/api/plaid/status', async (_req, res) => {
   const state = await readState();
+  const items = getPlaidItems(state);
   res.json({
     configured: plaidConfigured,
-    connected: Boolean(state.accessToken),
+    connected: items.length > 0,
+    itemCount: items.length,
+    maxItems: maxPlaidItems,
+    canLinkMore: items.length < maxPlaidItems,
+    items: items.map(({ itemId, connectedAt, label }) => ({ itemId, connectedAt, label })),
     environment: plaidEnv,
     products,
   });
@@ -90,6 +116,11 @@ app.get('/api/plaid/status', async (_req, res) => {
 
 app.post('/api/create_link_token', requirePlaid, async (_req, res, next) => {
   try {
+    const state = await readState();
+    if (getPlaidItems(state).length >= maxPlaidItems) {
+      return res.status(409).json({ error: `DoomLedger supports up to ${maxPlaidItems} connected Signal Arrays.` });
+    }
+
     const request = {
       user: { client_user_id: 'doomledger-personal-user' },
       client_name: 'DoomLedger',
@@ -116,17 +147,28 @@ app.post('/api/exchange_public_token', requirePlaid, async (req, res, next) => {
       return res.status(400).json({ error: 'Missing public_token from Plaid Link.' });
     }
 
-    const response = await plaidClient.itemPublicTokenExchange({ public_token: publicToken });
     const state = await readState();
-    await writeState({
-      ...state,
+    const items = getPlaidItems(state);
+    if (items.length >= maxPlaidItems) {
+      return res.status(409).json({ error: `DoomLedger supports up to ${maxPlaidItems} connected Signal Arrays.` });
+    }
+
+    const response = await plaidClient.itemPublicTokenExchange({ public_token: publicToken });
+    const existingIndex = items.findIndex((item) => item.itemId === response.data.item_id);
+    const nextItem = {
       accessToken: response.data.access_token,
       itemId: response.data.item_id,
       cursor: null,
       connectedAt: new Date().toISOString(),
-    });
+      label: `Signal Array ${existingIndex >= 0 ? existingIndex + 1 : items.length + 1}`,
+    };
+    const nextItems = existingIndex >= 0
+      ? items.map((item, index) => (index === existingIndex ? { ...item, ...nextItem } : item))
+      : [...items, nextItem].slice(0, maxPlaidItems);
 
-    return res.json({ ok: true, item_id: response.data.item_id });
+    await writeState({ items: nextItems });
+
+    return res.json({ ok: true, item_id: response.data.item_id, item_count: nextItems.length, max_items: maxPlaidItems });
   } catch (error) {
     return next(error);
   }
@@ -135,38 +177,45 @@ app.post('/api/exchange_public_token', requirePlaid, async (req, res, next) => {
 app.get('/api/transactions', requirePlaid, async (_req, res, next) => {
   try {
     const state = await readState();
-    if (!state.accessToken) {
+    const items = getPlaidItems(state);
+    if (!items.length) {
       return res.status(409).json({ error: 'No Plaid account connected yet.' });
     }
 
-    let cursor = state.cursor || null;
-    let hasMore = true;
     const added = [];
     const modified = [];
     const removed = [];
-    let nextCursor = cursor;
+    const nextItems = [];
 
-    while (hasMore) {
-      const response = await plaidClient.transactionsSync({
-        access_token: state.accessToken,
-        cursor,
-        count: 100,
-      });
-      added.push(...response.data.added);
-      modified.push(...response.data.modified);
-      removed.push(...response.data.removed);
-      hasMore = response.data.has_more;
-      cursor = response.data.next_cursor;
-      nextCursor = response.data.next_cursor;
+    for (const item of items) {
+      let cursor = item.cursor || null;
+      let hasMore = true;
+      let nextCursor = cursor;
+
+      while (hasMore) {
+        const response = await plaidClient.transactionsSync({
+          access_token: item.accessToken,
+          cursor,
+          count: 100,
+        });
+        added.push(...response.data.added.map((tx) => mapPlaidTransaction(tx, item)));
+        modified.push(...response.data.modified.map((tx) => mapPlaidTransaction(tx, item)));
+        removed.push(...response.data.removed.map((tx) => ({ ...tx, sourceItemId: item.itemId, sourceLabel: item.label })));
+        hasMore = response.data.has_more;
+        cursor = response.data.next_cursor;
+        nextCursor = response.data.next_cursor;
+      }
+
+      nextItems.push({ ...item, cursor: nextCursor, lastSyncAt: new Date().toISOString() });
     }
 
-    await writeState({ ...state, cursor: nextCursor, lastSyncAt: new Date().toISOString() });
+    await writeState({ items: nextItems, lastSyncAt: new Date().toISOString() });
 
     return res.json({
-      added: added.map(mapPlaidTransaction),
-      modified: modified.map(mapPlaidTransaction),
+      added,
+      modified,
       removed,
-      cursor: nextCursor,
+      itemCount: nextItems.length,
     });
   } catch (error) {
     return next(error);

@@ -339,9 +339,9 @@ function TxItem({tx}){
   const mission=getTransactionMission(tx);
   return React.createElement('div',{className:`tx-item ${tx.type}`},
     React.createElement('div',{className:`tx-icon ${tx.type}`},icons[tx.type]),
-    React.createElement('div',{className:'tx-details'},
-      React.createElement('div',{className:'tx-merchant'},tx.merchant),
-      React.createElement('div',{className:'tx-cat'},tx.category),
+      React.createElement('div',{className:'tx-details'},
+        React.createElement('div',{className:'tx-merchant'},tx.merchant),
+      React.createElement('div',{className:'tx-cat'},tx.category+(tx.sourceLabel?' / '+tx.sourceLabel:'')),
       React.createElement('div',{className:'tx-mission'},mission.detail)),
     React.createElement('div',null,
       React.createElement('div',{className:`tx-amt ${tx.type}`},(tx.amount>0?'+':'')+fmtCur(tx.amount)),
@@ -400,6 +400,9 @@ function BadgeRack({data}){
 // ===== SCREENS =====
 
 function AccountConnectScreen({onConnect,onUseDemo,plaidStatus}){
+  const itemCount=plaidStatus.itemCount||0;
+  const maxItems=plaidStatus.maxItems||2;
+  const full=itemCount>=maxItems;
   return React.createElement('div',{className:'screen active connect-shell'},
     React.createElement('div',{className:'setup-hero'},
       React.createElement('div',{className:'setup-kicker'},'Ledger Scan Required'),
@@ -412,14 +415,16 @@ function AccountConnectScreen({onConnect,onUseDemo,plaidStatus}){
           React.createElement('div',{className:'connect-core'},'BANK'),
           React.createElement('div',{className:'connect-ring ring-one'}),
           React.createElement('div',{className:'connect-ring ring-two'})),
-        React.createElement('div',{className:'connect-title'},plaidStatus.connected?'Signal Array Connected':'Connecting to Signal Array'),
+        React.createElement('div',{className:'connect-title'},itemCount>0?`Signal Array ${itemCount}/${maxItems} Connected`:'Connecting to Signal Array'),
         React.createElement('p',{className:'connect-copy'},plaidStatus.staticHost
           ?'The live GitHub Pages site cannot run the private Plaid backend. Use the demo scan here, or run npm run dev locally to connect Plaid.'
           :plaidStatus.configured
-            ?'Plaid Sandbox is ready. Link an account so DoomLedger can scan transactions and suggest missions.'
+            ? full
+              ?'Two Signal Arrays are already linked. Rescan them to refresh suggested missions.'
+              :'Plaid Sandbox is ready. Link up to two accounts so DoomLedger can scan transactions and suggest missions.'
             :'Plaid keys are missing. Add them to .env, then restart npm run dev.'),
-        React.createElement('button',{className:'btn btn-primary',onClick:onConnect,disabled:plaidStatus.loading||plaidStatus.staticHost||!plaidStatus.configured},
-          React.createElement(IconWallet),plaidStatus.loading?'Connecting to Signal Array...':plaidStatus.connected?'Resync Signal Array':'Connect Signal Array'),
+        React.createElement('button',{className:'btn btn-primary',onClick:()=>onConnect(!full),disabled:plaidStatus.loading||plaidStatus.staticHost||!plaidStatus.configured},
+          React.createElement(IconWallet),plaidStatus.loading?'Connecting to Signal Array...':full?'Resync Signal Arrays':itemCount===1?'Connect Second Signal Array':'Connect Signal Array'),
         React.createElement('button',{className:'btn btn-secondary',onClick:onUseDemo},React.createElement(IconZap),' Use Demo Ledger Scan')),
       React.createElement('div',{className:'card'},
         React.createElement('div',{className:'card-title'},React.createElement(IconTarget),' What Gets Analyzed'),
@@ -566,12 +571,12 @@ function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,plaidStatus}){
     data.alerts.map(a=>React.createElement(AlertBanner,{key:a.id,alert:a})),
     (!plaidStatus.configured||plaidStatus.staticHost)&&React.createElement('div',{className:'alert alert-warning'},
       React.createElement('span',{className:'alert-icon'},'API'),
-      React.createElement('span',{className:'alert-text'},React.createElement('strong',null,'Plaid setup needed. '),plaidStatus.staticHost?'GitHub Pages is static, so run the app locally with npm run dev to use the Plaid backend.':'Copy .env.example to .env and add your Sandbox keys before linking a bank.')),
+      React.createElement('span',{className:'alert-text'},React.createElement('strong',null,'Plaid setup needed. '),plaidStatus.staticHost?'GitHub Pages is static, so run the app locally with npm run dev to use the Plaid backend.':'Copy .env.example to .env and add your Sandbox keys before linking Signal Arrays.')),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconZap),' Quick Actions'),
       React.createElement('div',{className:'quick-actions'},
         React.createElement('button',{className:'btn btn-primary',onClick:onLogSavings},React.createElement(IconPlus),' Log Savings Transfer'),
-        React.createElement('button',{className:'btn btn-secondary',onClick:onLinkBank,disabled:plaidStatus.loading},React.createElement(IconWallet),plaidStatus.loading?'Connecting...':plaidStatus.connected?'Sync Bank Transactions':'Link Bank Account'),
+        React.createElement('button',{className:'btn btn-secondary',onClick:()=>onLinkBank(false),disabled:plaidStatus.loading},React.createElement(IconWallet),plaidStatus.loading?'Connecting...':plaidStatus.connected?'Sync Signal Arrays':'Connect Signal Array'),
         React.createElement('button',{className:'btn btn-secondary',onClick:onEditGoal},React.createElement(IconTarget),' Recalibrate Goal'))));
 }
 
@@ -644,7 +649,7 @@ function App(){
   const [accountAnalyzed,setAccountAnalyzed]=useState(false);
   const [suggestedMissions,setSuggestedMissions]=useState([]);
   const [showSplash,setShowSplash]=useState(true);
-  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,loading:false,environment:'sandbox',products:[],staticHost:isStaticPagesHost()});
+  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,itemCount:0,maxItems:2,canLinkMore:true,loading:false,environment:'sandbox',products:[],items:[],staticHost:isStaticPagesHost()});
 
   const addToast=useCallback((icon,msg)=>{
     const id=Date.now()+Math.random();
@@ -722,6 +727,10 @@ function App(){
   const syncPlaidTransactions=useCallback(async()=>{
     const result=await apiRequest('/api/transactions');
     const incoming=[...result.added,...result.modified];
+    setPlaidStatus(p=>{
+      const itemCount=result.itemCount??p.itemCount;
+      return {...p,itemCount,connected:itemCount>0,canLinkMore:itemCount<(p.maxItems||2)};
+    });
     if(!incoming.length) {
       addToast('SYNC','No new bank transactions found.');
       return [];
@@ -749,20 +758,26 @@ function App(){
     markLedgerAnalyzed(DEMO.transactions,'Demo ledger analyzed. Suggestions generated.');
   },[markLedgerAnalyzed]);
 
-  const handleLinkBank=useCallback(async()=>{
+  const handleLinkBank=useCallback(async(forceLink=false)=>{
     if(plaidStatus.staticHost) {
       addToast('LOCAL','Plaid requires the local backend. Run npm run dev on your machine.');
       return;
     }
     setPlaidStatus(p=>({...p,loading:true}));
     try {
-      if(plaidStatus.connected) {
+      if(plaidStatus.connected && !forceLink) {
         try {
           const synced=await syncPlaidTransactions();
           markLedgerAnalyzed(synced.length?synced:data.transactions,'Account analyzed. Suggestions refreshed.');
         } finally {
           setPlaidStatus(p=>({...p,loading:false}));
         }
+        return;
+      }
+      if(forceLink && plaidStatus.connected && plaidStatus.canLinkMore===false) {
+        const synced=await syncPlaidTransactions();
+        markLedgerAnalyzed(synced.length?synced:data.transactions,'Two Signal Arrays already linked. Suggestions refreshed.');
+        setPlaidStatus(p=>({...p,loading:false}));
         return;
       }
 
@@ -772,12 +787,18 @@ function App(){
         token:linkToken,
         onSuccess:async(publicToken)=>{
           try {
-            await apiRequest('/api/exchange_public_token',{
+            const exchange=await apiRequest('/api/exchange_public_token',{
               method:'POST',
               body:JSON.stringify({public_token:publicToken}),
             });
-            setPlaidStatus(p=>({...p,connected:true}));
-            addToast('LINK','Bank account linked.');
+            setPlaidStatus(p=>({
+              ...p,
+              connected:true,
+              itemCount:exchange.item_count??Math.min((p.itemCount||0)+1,p.maxItems||2),
+              maxItems:exchange.max_items??p.maxItems,
+              canLinkMore:(exchange.item_count??((p.itemCount||0)+1)) < (exchange.max_items??p.maxItems??2),
+            }));
+            addToast('LINK','Signal Array linked.');
             const synced=await syncPlaidTransactions();
             markLedgerAnalyzed(synced.length?synced:data.transactions,'Account connected and analyzed.');
           } catch (error) {
@@ -793,7 +814,7 @@ function App(){
       addToast('ERROR',error.message);
       setPlaidStatus(p=>({...p,loading:false}));
     }
-  },[addToast,data.transactions,markLedgerAnalyzed,plaidStatus.connected,plaidStatus.staticHost,syncPlaidTransactions]);
+  },[addToast,data.transactions,markLedgerAnalyzed,plaidStatus.canLinkMore,plaidStatus.connected,plaidStatus.staticHost,syncPlaidTransactions]);
 
   useEffect(()=>{
     if(isStaticPagesHost()) {
