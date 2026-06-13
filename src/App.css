@@ -43,12 +43,6 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   flex-shrink: 0;
 }
-.header-title {
-  font-family: 'Orbitron', sans-serif; font-size: 17px; font-weight: 900;
-  letter-spacing: 4px;
-  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
-}
 .header-logo {
   width: 238px;
   height: auto;
@@ -75,6 +69,15 @@ body {
   height: min(100vh, 720px);
   object-fit: cover;
   display: block;
+}
+.splash-logo {
+  position: absolute;
+  top: calc(50% - 152px);
+  left: 50%;
+  width: min(900px, 92vw);
+  height: auto;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 0 18px rgba(5,255,161,0.35));
 }
 .main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 14px; position: relative; }
 .card {
