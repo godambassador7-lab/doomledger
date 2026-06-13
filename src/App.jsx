@@ -135,8 +135,7 @@ function Toast({toasts,onDismiss}){
 
 function SplashScreen(){
   return React.createElement('div',{className:'splash-screen','aria-label':'DoomLedger loading'},
-    React.createElement('img',{className:'splash-image',src:assetUrl('splash-screen.png'),alt:''}),
-    React.createElement('img',{className:'splash-logo',src:assetUrl('doomledger-logo.png'),alt:'DoomLedger'}));
+    React.createElement('img',{className:'splash-image',src:assetUrl('splash-screen.png'),alt:'DoomLedger loading'}));
 }
 
 function DoomClock({deadline,goal,current}){

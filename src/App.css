@@ -44,9 +44,10 @@ body {
   flex-shrink: 0;
 }
 .header-logo {
-  width: 238px;
-  height: auto;
+  width: auto;
+  height: 56px;
   display: block;
+  object-fit: contain;
   filter: drop-shadow(0 0 8px rgba(5,255,161,0.22));
 }
 .header-status {
@@ -65,19 +66,10 @@ body {
   pointer-events: none;
 }
 .splash-image {
-  width: min(100vw, 1280px);
-  height: min(100vh, 720px);
+  width: 100vw;
+  height: 100vh;
   object-fit: cover;
   display: block;
-}
-.splash-logo {
-  position: absolute;
-  top: calc(50% - 152px);
-  left: 50%;
-  width: min(900px, 92vw);
-  height: auto;
-  transform: translateX(-50%);
-  filter: drop-shadow(0 0 18px rgba(5,255,161,0.35));
 }
 .main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 14px; position: relative; }
 .card {
