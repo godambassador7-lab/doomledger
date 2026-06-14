@@ -36,6 +36,13 @@ body {
 @keyframes neonFill { from{width:0} }
 @keyframes gainPulse { 0%,100%{box-shadow:0 0 0 rgba(5,255,161,0)} 50%{box-shadow:0 0 24px rgba(5,255,161,0.18)} }
 @keyframes threatFlash { 0%,100%{box-shadow:0 0 0 rgba(255,42,109,0)} 50%{box-shadow:0 0 22px rgba(255,42,109,0.22)} }
+@keyframes cinematicOut { 0%{opacity:0} 10%,78%{opacity:1} 100%{opacity:0;visibility:hidden} }
+@keyframes effectPop { 0%{transform:scale(0.82) translateY(18px);opacity:0} 18%,78%{transform:scale(1) translateY(0);opacity:1} 100%{transform:scale(1.04) translateY(-8px);opacity:0} }
+@keyframes burstSpin { from{transform:rotate(0deg) scale(0.8);opacity:0.2} 50%{opacity:0.72} to{transform:rotate(80deg) scale(1.55);opacity:0} }
+@keyframes stationFloat { 0%,100%{transform:translateY(0) scale(1)} 50%{transform:translateY(-7px) scale(1.02)} }
+@keyframes shieldOrbit { from{transform:translate(-50%,-50%) rotate(0deg)} to{transform:translate(-50%,-50%) rotate(360deg)} }
+@keyframes repairSweep { 0%{opacity:0;transform:translateX(-100%)} 25%{opacity:1} 100%{opacity:0;transform:translateX(100%)} }
+@keyframes damageCrack { 0%,100%{opacity:0} 10%,45%{opacity:1} 20%{transform:translateX(-4px)} 30%{transform:translateX(5px)} }
 .scanline {
   position: fixed; inset: 0; pointer-events: none; z-index: 1000;
   background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,240,255,0.012) 2px, rgba(0,240,255,0.012) 4px);
@@ -56,6 +63,18 @@ body {
   background:
     radial-gradient(circle at top right, rgba(0,240,255,0.08), transparent 36%),
     linear-gradient(180deg, #0a0a0f 0%, #0d1017 52%, #07090d 100%);
+}
+.app.impact-repair::after, .app.impact-reward::after, .app.impact-complete::after {
+  content: ''; position: fixed; inset: 0; z-index: 900; pointer-events: none;
+  background: linear-gradient(100deg, transparent 0%, rgba(5,255,161,0.18) 42%, rgba(0,240,255,0.22) 50%, transparent 62%);
+  animation: repairSweep 0.85s ease both;
+}
+.app.impact-damage::after {
+  content: ''; position: fixed; inset: 0; z-index: 900; pointer-events: none;
+  background:
+    linear-gradient(120deg, transparent 0 42%, rgba(255,42,109,0.34) 43%, transparent 45%),
+    linear-gradient(70deg, transparent 0 58%, rgba(255,42,109,0.22) 59%, transparent 61%);
+  animation: damageCrack 0.75s ease both;
 }
 .header {
   padding: 14px 16px 10px;
@@ -126,6 +145,28 @@ body {
   animation: loaderSweep 0.75s linear infinite;
 }
 .main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 12px 14px; position: relative; z-index: 1; }
+.effect-overlay {
+  position: fixed; inset: 0; z-index: 4000; display: flex; align-items: center; justify-content: center;
+  background: rgba(2,6,10,0.76); pointer-events: none; animation: cinematicOut 2.3s ease forwards;
+}
+.effect-burst {
+  position: absolute; width: min(78vw, 560px); aspect-ratio: 1; border-radius: 50%;
+  background: conic-gradient(from 0deg, transparent, rgba(5,255,161,0.55), transparent, rgba(0,240,255,0.5), transparent);
+  filter: blur(2px); animation: burstSpin 2.1s ease forwards;
+}
+.effect-overlay.damage .effect-burst { background: conic-gradient(from 0deg, transparent, rgba(255,42,109,0.65), transparent, rgba(255,158,0,0.45), transparent); }
+.effect-card {
+  position: relative; width: min(520px, 86vw); border: 1px solid rgba(5,255,161,0.45); border-radius: 14px;
+  background: linear-gradient(180deg, rgba(16,20,28,0.96), rgba(7,9,13,0.98)); padding: 26px 22px;
+  text-align: center; box-shadow: 0 0 44px rgba(5,255,161,0.22); animation: effectPop 2.2s ease forwards;
+}
+.effect-overlay.damage .effect-card { border-color: rgba(255,42,109,0.48); box-shadow: 0 0 44px rgba(255,42,109,0.22); }
+.effect-station { width: 116px; height: 116px; object-fit: contain; filter: drop-shadow(0 0 18px rgba(5,255,161,0.45)); margin-bottom: 12px; }
+.effect-kicker { color: var(--accent-cyan); font-size: 10px; letter-spacing: 3px; text-transform: uppercase; }
+.effect-title { font-family: 'Orbitron', sans-serif; color: var(--accent-green); font-size: clamp(26px, 7vw, 46px); font-weight: 900; margin-top: 8px; }
+.effect-overlay.damage .effect-title { color: var(--accent-red); }
+.effect-detail { color: var(--text-secondary); font-size: 14px; line-height: 1.5; margin: 10px auto 0; max-width: 390px; }
+.effect-reward { display: inline-block; margin-top: 14px; color: var(--bg-primary); background: var(--accent-green); border-radius: 999px; padding: 8px 12px; font-weight: 800; letter-spacing: 1px; }
 .card {
   background: linear-gradient(180deg, rgba(28,29,44,0.93), rgba(16,18,28,0.93));
   border: 1px solid rgba(0,240,255,0.14); border-radius: 10px;
@@ -468,6 +509,28 @@ body {
   color: var(--text-muted); font-family: 'Orbitron', sans-serif; font-size: 10px;
 }
 .quest-node.earned { color: var(--bg-primary); background: var(--accent-green); border-color: transparent; box-shadow: 0 0 16px rgba(5,255,161,0.3); }
+.station-card { text-align: center; }
+.station-stage { width: min(300px, 82vw); aspect-ratio: 1; margin: 4px auto 12px; position: relative; display: flex; align-items: center; justify-content: center; }
+.station-image { width: 74%; height: 74%; object-fit: contain; position: relative; z-index: 2; animation: stationFloat 4s ease-in-out infinite; filter: grayscale(0.35) brightness(0.8) drop-shadow(0 0 12px rgba(0,240,255,0.18)); }
+.station-aura, .station-shield, .station-grid { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); border-radius: 50%; pointer-events: none; }
+.station-aura { width: 58%; height: 58%; background: radial-gradient(circle, rgba(5,255,161,0.24), transparent 64%); opacity: 0.2; }
+.station-shield { width: 82%; height: 82%; border: 1px solid rgba(5,255,161,0.35); opacity: 0; }
+.station-grid { width: 96%; height: 96%; border: 1px dashed rgba(0,240,255,0.24); opacity: 0; animation: shieldOrbit 18s linear infinite; }
+.station-card.signal .station-image { filter: brightness(0.92) drop-shadow(0 0 14px rgba(0,240,255,0.28)); }
+.station-card.shield .station-shield, .station-card.core .station-shield, .station-card.grid .station-shield, .station-card.final .station-shield, .station-card.complete .station-shield { opacity: 1; box-shadow: 0 0 24px rgba(5,255,161,0.18); }
+.station-card.core .station-aura, .station-card.grid .station-aura, .station-card.final .station-aura, .station-card.complete .station-aura { opacity: 0.9; }
+.station-card.grid .station-grid, .station-card.final .station-grid, .station-card.complete .station-grid { opacity: 1; }
+.station-card.final .station-image, .station-card.complete .station-image { filter: brightness(1.15) drop-shadow(0 0 26px rgba(5,255,161,0.42)); }
+.station-card.complete .station-shield { border-color: var(--accent-green); box-shadow: 0 0 34px rgba(5,255,161,0.48); }
+.station-label { font-family: 'Orbitron', sans-serif; font-size: 17px; color: var(--accent-green); font-weight: 900; }
+.station-sub { color: var(--text-secondary); font-size: 12px; margin-top: 5px; }
+.debrief-card { text-align: center; border-color: rgba(5,255,161,0.42); box-shadow: 0 0 34px rgba(5,255,161,0.12); }
+.debrief-title { font-family: 'Orbitron', sans-serif; color: var(--accent-green); font-size: clamp(28px, 7vw, 48px); font-weight: 900; margin: 8px 0 16px; text-shadow: 0 0 22px rgba(5,255,161,0.32); }
+.debrief-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.debrief-grid div { background: rgba(5,255,161,0.07); border: 1px solid rgba(5,255,161,0.22); border-radius: 10px; padding: 12px 8px; }
+.debrief-grid strong { display: block; font-family: 'Orbitron', sans-serif; color: var(--accent-cyan); font-size: 16px; }
+.debrief-grid span { display: block; color: var(--text-muted); font-size: 9px; letter-spacing: 1px; text-transform: uppercase; margin-top: 5px; }
+.shield-card-pulse { animation: slideUp 0.35s ease, gainPulse 1.2s ease 2; border-color: rgba(5,255,161,0.44); }
 .badge-rack { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .achievement {
   display: flex; align-items: center; gap: 10px; border: 1px solid var(--border); border-radius: 10px;
@@ -553,7 +616,7 @@ body {
   .header-logo { height: 46px; }
   .header-hud { grid-template-columns: 1fr; width: calc(100vw - 92px); gap: 6px; }
   .hud-metric { padding: 7px 8px; }
-  .command-grid, .connect-grid, .setup-grid, .mission-preview, .suggestion-grid, .timeline-track, .raid-list, .campaign-split, .operation-grid, .phase-grid { grid-template-columns: 1fr; }
+  .command-grid, .connect-grid, .setup-grid, .mission-preview, .suggestion-grid, .timeline-track, .raid-list, .campaign-split, .operation-grid, .phase-grid, .debrief-grid { grid-template-columns: 1fr; }
   .difficulty-grid, .milestone-list, .badge-rack { grid-template-columns: 1fr; }
   .setup-title { font-size: 24px; }
 }

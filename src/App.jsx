@@ -277,6 +277,10 @@ const getCampaignState = (data) => {
   ];
   return {saved,pct,expectedPct,pace,phase,raids,threatEvents,operations,streaks,milestones,daysLeft};
 };
+const getCrossedMilestone = (beforePct, afterPct) => {
+  const milestones=[10,25,50,75,90,100];
+  return milestones.filter(pct=>beforePct<pct&&afterPct>=pct).pop() || null;
+};
 
 // ===== COMPONENTS =====
 
@@ -293,6 +297,19 @@ function SplashScreen(){
     React.createElement('img',{className:'splash-image',src:assetUrl('splash-screen.png'),alt:'DoomLedger loading'}),
     React.createElement('div',{className:'splash-loader','aria-hidden':'true'},
       React.createElement('div',{className:'splash-loader-fill'})));
+}
+
+function VisualEffectOverlay({effect,onDismiss}){
+  if(!effect) return null;
+  const title=effect.title || (effect.kind==='damage'?'THREAT IMPACT':'SHIELD REINFORCED');
+  return React.createElement('div',{className:`effect-overlay ${effect.kind}`,onAnimationEnd:onDismiss},
+    React.createElement('div',{className:'effect-burst'}),
+    React.createElement('div',{className:'effect-card'},
+      React.createElement('img',{className:'effect-station',src:assetUrl('app-icon-512.png'),alt:''}),
+      React.createElement('div',{className:'effect-kicker'},effect.kicker || 'DoomLedger Event'),
+      React.createElement('div',{className:'effect-title'},title),
+      effect.detail&&React.createElement('div',{className:'effect-detail'},effect.detail),
+      effect.reward&&React.createElement('div',{className:'effect-reward'},effect.reward)));
 }
 
 function HudMetric({label,value,pct,tone='green'}){
@@ -342,12 +359,12 @@ function ShieldRing({pct,label}){
         React.createElement('div',{className:'shield-lbl'},label))));
 }
 
-function SquadShield({members,goal}){
+function SquadShield({members,goal,pulse}){
   const active=members.filter(m=>m.status==='ACTIVE');
   const saved=members.reduce((s,m)=>s+m.contribution,0);
   const pct=Math.min(100,Math.round(saved/goal*100));
   const avg=Math.round(active.reduce((s,m)=>s+m.shieldHealth,0)/(active.length||1));
-  return React.createElement('div',{className:'card'},
+  return React.createElement('div',{className:`card ${pulse?'shield-card-pulse':''}`},
     React.createElement('div',{className:'card-title'},React.createElement(IconShield),' Squad Defense Status'),
     React.createElement(ShieldRing,{pct:pct,label:'Squad Shield'}),
     React.createElement('div',{className:'stats-grid',style:{marginTop:10}},
@@ -463,6 +480,41 @@ function QuestCard({data,onEditGoal}){
       React.createElement('span',null,'Deadline: '+days+'d')),
     React.createElement('div',{className:'quest-milestones'},
       milestones.map(m=>React.createElement('div',{key:m,className:`quest-node ${pct>=m?'earned':''}`},m+'%'))));
+}
+
+function StationUpgrade({campaign}){
+  const tier=campaign.pct>=100?'complete':campaign.pct>=90?'final':campaign.pct>=75?'grid':campaign.pct>=50?'core':campaign.pct>=25?'shield':campaign.pct>=10?'signal':'offline';
+  const label={
+    offline:'Station Cold Start',
+    signal:'Signal Lock Active',
+    shield:'Shield Ring Online',
+    core:'Armor Core Brightened',
+    grid:'Defensive Grid Active',
+    final:'Final Stand Armed',
+    complete:'Station Fully Reinforced',
+  }[tier];
+  return React.createElement('div',{className:`card station-card ${tier}`},
+    React.createElement('div',{className:'card-title'},React.createElement(IconShield),' Station Upgrade Visual'),
+    React.createElement('div',{className:'station-stage'},
+      React.createElement('div',{className:'station-aura'}),
+      React.createElement('img',{className:'station-image',src:assetUrl('app-icon-512.png'),alt:'Station upgrade state'}),
+      React.createElement('div',{className:'station-shield'}),
+      React.createElement('div',{className:'station-grid'})),
+    React.createElement('div',{className:'station-label'},label),
+    React.createElement('div',{className:'station-sub'},campaign.pct+'% structural reinforcement'));
+}
+
+function MissionDebrief({campaign,data}){
+  if(campaign.pct<100) return null;
+  const earned=getBadges(data).filter(b=>b.state==='earned').length;
+  return React.createElement('div',{className:'card debrief-card'},
+    React.createElement('div',{className:'card-title'},React.createElement(IconCrown),' Mission Debrief'),
+    React.createElement('div',{className:'debrief-title'},'MISSION CLEARED'),
+    React.createElement('div',{className:'debrief-grid'},
+      React.createElement('div',null,React.createElement('strong',null,fmtCur(campaign.saved)),React.createElement('span',null,'Total Saved')),
+      React.createElement('div',null,React.createElement('strong',null,campaign.daysLeft),React.createElement('span',null,'Days Remaining')),
+      React.createElement('div',null,React.createElement('strong',null,earned),React.createElement('span',null,'Badges Earned')),
+      React.createElement('div',null,React.createElement('strong',null,'S-Rank'),React.createElement('span',null,'Final Rank'))));
 }
 
 function BadgeRack({data}){
@@ -686,7 +738,7 @@ function MissionSetup({onCreate,suggestions,onBack}){
           React.createElement('div',{className:'milestone-text'},p===100?'Boss Clear':'Rank Up'))))));
 }
 
-function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,onAcceptOperation,plaidStatus}){
+function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,onAcceptOperation,plaidStatus,effectTone}){
   const saved=data.members.reduce((s,m)=>s+m.contribution,0);
   const days=Math.floor((data.squad.deadline-Date.now())/864e5);
   const pace=Math.max(0,(data.squad.goalAmount-saved)/Math.max(1,days));
@@ -698,10 +750,12 @@ function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,onAcceptOperation,p
     React.createElement('div',{className:'command-grid'},
       React.createElement(DoomClock,{deadline:data.squad.deadline,goal:data.squad.goalAmount,current:saved}),
       React.createElement(QuestCard,{data,onEditGoal})),
+    React.createElement(StationUpgrade,{campaign}),
+    React.createElement(MissionDebrief,{campaign,data}),
     React.createElement(CampaignPhasePanel,{campaign}),
     React.createElement(MilestoneTimeline,{campaign}),
     React.createElement(WeeklyRaids,{campaign}),
-    React.createElement(SquadShield,{members:data.members,goal:data.squad.goalAmount}),
+    React.createElement(SquadShield,{members:data.members,goal:data.squad.goalAmount,pulse:effectTone==='repair'||effectTone==='reward'||effectTone==='complete'}),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconTarget),' Mission Parameters'),
       React.createElement('div',{className:'stats-grid'},
@@ -798,6 +852,8 @@ function App(){
   const [accountAnalyzed,setAccountAnalyzed]=useState(false);
   const [suggestedMissions,setSuggestedMissions]=useState([]);
   const [showSplash,setShowSplash]=useState(true);
+  const [visualEffect,setVisualEffect]=useState(null);
+  const [effectTone,setEffectTone]=useState('');
   const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,itemCount:0,maxItems:2,canLinkMore:true,loading:false,environment:'sandbox',products:[],items:[],staticHost:isStaticPagesHost()});
 
   const addToast=useCallback((icon,msg)=>{
@@ -807,6 +863,12 @@ function App(){
   },[]);
 
   const dismissToast=useCallback(id=>setToasts(p=>p.filter(t=>t.id!==id)),[]);
+
+  const triggerVisualEffect=useCallback(effect=>{
+    setVisualEffect({...effect,id:Date.now()+Math.random()});
+    setEffectTone(effect.kind||'repair');
+    setTimeout(()=>setEffectTone(''),900);
+  },[]);
 
   const markLedgerAnalyzed=useCallback((transactions, label='Ledger scan complete.')=>{
     const missions=generateMissionSuggestions(transactions);
@@ -853,15 +915,25 @@ function App(){
 
   const handleAcceptOperation=useCallback(operation=>{
     handleCreateGoal(operation);
+    triggerVisualEffect({kind:'reward',kicker:'Operation Accepted',title:'MISSION UPDATED',detail:operation.name+' is now the active campaign.',reward:'+100 XP / New Objective'});
     addToast('OPS','Recommended operation accepted: '+operation.name);
-  },[addToast,handleCreateGoal]);
+  },[addToast,handleCreateGoal,triggerVisualEffect]);
 
   const handleLogSavings=useCallback(()=>{
     const amount=100;
     setData(p=>{
       const current=p.members.find(m=>m.isYou)?.contribution||0;
+      const beforePct=p.squad.goalAmount?clamp(Math.round(current/p.squad.goalAmount*100),0,100):0;
       const next=clamp(current+amount,0,p.squad.goalAmount);
       const shield=p.squad.goalAmount?clamp(Math.round(next/p.squad.goalAmount*100),0,100):0;
+      const milestone=getCrossedMilestone(beforePct,shield);
+      if(milestone===100) {
+        triggerVisualEffect({kind:'complete',kicker:'Final Debrief',title:'MISSION CLEARED',detail:p.squad.name+' reached full reinforcement.',reward:'+500 XP / S-Rank'});
+      } else if(milestone) {
+        triggerVisualEffect({kind:'reward',kicker:'Checkpoint Boss Defeated',title:milestone+'% CLEARED',detail:'Station systems upgraded at checkpoint '+milestone+'%.',reward:'+150 XP / Reward Crate Opened'});
+      } else {
+        triggerVisualEffect({kind:'repair',kicker:'Progress Beam',title:'+100 SHIELD POWER',detail:'Savings transfer routed into the station core.',reward:'+25 XP'});
+      }
       return {
         ...p,
         members:p.members.map(m=>m.isYou?{...m,contribution:next,shieldHealth:shield,efficiency:clamp(m.efficiency+0.02,0.1,1)}:m),
@@ -875,8 +947,8 @@ function App(){
         ],
       };
     });
-    addToast('SAVE','Savings transfer logged.');
-  },[addToast]);
+    addToast('SAVE','+100 SHIELD POWER');
+  },[addToast,triggerVisualEffect]);
 
   const syncPlaidTransactions=useCallback(async()=>{
     const result=await apiRequest('/api/transactions');
@@ -888,6 +960,11 @@ function App(){
     if(!incoming.length) {
       addToast('SYNC','No new bank transactions found.');
       return [];
+    }
+    if(incoming.some(tx=>tx.type==='negative')) {
+      triggerVisualEffect({kind:'damage',kicker:'Threat Event',title:'DAMAGE REPORT',detail:'A synced transaction hit mission stability.',reward:'Counter-mission recommended'});
+    } else if(incoming.some(tx=>tx.type==='positive')) {
+      triggerVisualEffect({kind:'repair',kicker:'Signal Array Sync',title:'SHIELD REINFORCED',detail:'Positive ledger movement repaired station armor.',reward:'+75 XP'});
     }
 
     setData(p=>{
@@ -905,7 +982,7 @@ function App(){
     setTab('activity');
     addToast('SYNC','Bank transactions synced.');
     return incoming;
-  },[addToast]);
+  },[addToast,triggerVisualEffect]);
 
   const handleUseDemoScan=useCallback(()=>{
     setData(DEMO);
@@ -1000,16 +1077,17 @@ function App(){
     if(!accountAnalyzed) return React.createElement(AccountConnectScreen,{onConnect:handleLinkBank,onUseDemo:handleUseDemoScan,plaidStatus});
     if(!hasGoal) return React.createElement(MissionSetup,{onCreate:handleCreateGoal,suggestions:suggestedMissions,onBack:()=>setAccountAnalyzed(false)});
     switch(tab){
-      case 'home':return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,onAcceptOperation:handleAcceptOperation,plaidStatus});
+      case 'home':return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,onAcceptOperation:handleAcceptOperation,plaidStatus,effectTone});
       case 'squad':return React.createElement(SquadScreen,{data,onVote:handleVote});
       case 'activity':return React.createElement(ActivityScreen,{data,onLinkBank:handleLinkBank});
       case 'leaderboard':return React.createElement(LeaderboardScreen,{data});
-      default:return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,onAcceptOperation:handleAcceptOperation,plaidStatus});
+      default:return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,onAcceptOperation:handleAcceptOperation,plaidStatus,effectTone});
     }
   };
 
-  return React.createElement('div',{className:'app'},
+  return React.createElement('div',{className:`app ${effectTone?`impact-${effectTone}`:''}`},
     showSplash&&React.createElement(SplashScreen),
+    React.createElement(VisualEffectOverlay,{effect:visualEffect,onDismiss:()=>setVisualEffect(null)}),
     React.createElement('div',{className:'ambient-grid','aria-hidden':'true'}),
     React.createElement('div',{className:'scanline','aria-hidden':'true'}),
     React.createElement(Toast,{toasts,onDismiss:dismissToast}),
