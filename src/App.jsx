@@ -666,7 +666,7 @@ function AccountConnectScreen({onConnect,onUseDemo,plaidStatus}){
               ?'Two Signal Arrays are already linked. Rescan them to refresh suggested missions.'
               :'Plaid Sandbox is ready. Link up to two accounts so DoomLedger can scan transactions and suggest missions.'
             :'Plaid keys are missing. Add them to .env, then restart npm run dev.'),
-        React.createElement('button',{className:'btn btn-primary',onClick:()=>onConnect(!full),disabled:plaidStatus.loading||plaidStatus.staticHost||!plaidStatus.configured},
+        React.createElement('button',{className:'btn btn-primary',onClick:()=>onConnect(!full),disabled:plaidStatus.loading},
           React.createElement(IconWallet),plaidStatus.loading?'Connecting to Signal Array...':full?'Resync Signal Arrays':itemCount===1?'Connect Second Signal Array':'Connect Signal Array'),
         React.createElement('button',{className:'btn btn-secondary',onClick:onUseDemo},React.createElement(IconZap),' Use Demo Ledger Scan')),
       React.createElement('div',{className:'card'},
@@ -1045,6 +1045,13 @@ function App(){
     markLedgerAnalyzed(DEMO.transactions,'Demo ledger analyzed. Suggestions generated.');
   },[markLedgerAnalyzed]);
 
+  const refreshPlaidStatus=useCallback(async()=>{
+    if(isStaticPagesHost()) return null;
+    const status=await apiRequest('/api/plaid/status');
+    setPlaidStatus(p=>({...p,...status}));
+    return status;
+  },[]);
+
   const handleLinkBank=useCallback(async(forceLink=false)=>{
     if(plaidStatus.staticHost) {
       addToast('LOCAL','Plaid requires the local backend. Run npm run dev on your machine.');
@@ -1052,7 +1059,14 @@ function App(){
     }
     setPlaidStatus(p=>({...p,loading:true}));
     try {
-      if(plaidStatus.connected && !forceLink) {
+      const latestStatus=await refreshPlaidStatus();
+      const activeStatus={...plaidStatus,...latestStatus};
+
+      if(!activeStatus.configured) {
+        throw new Error('Plaid keys are missing. Add them to .env, then restart npm run dev.');
+      }
+
+      if(activeStatus.connected && !forceLink) {
         try {
           const synced=await syncPlaidTransactions();
           markLedgerAnalyzed(synced.length?synced:data.transactions,'Account analyzed. Suggestions refreshed.');
@@ -1061,7 +1075,7 @@ function App(){
         }
         return;
       }
-      if(forceLink && plaidStatus.connected && plaidStatus.canLinkMore===false) {
+      if(forceLink && activeStatus.connected && activeStatus.canLinkMore===false) {
         const synced=await syncPlaidTransactions();
         markLedgerAnalyzed(synced.length?synced:data.transactions,'Two Signal Arrays already linked. Suggestions refreshed.');
         setPlaidStatus(p=>({...p,loading:false}));
@@ -1101,7 +1115,7 @@ function App(){
       addToast('ERROR',error.message);
       setPlaidStatus(p=>({...p,loading:false}));
     }
-  },[addToast,data.transactions,markLedgerAnalyzed,plaidStatus.canLinkMore,plaidStatus.connected,plaidStatus.staticHost,syncPlaidTransactions]);
+  },[addToast,data.transactions,markLedgerAnalyzed,plaidStatus,refreshPlaidStatus,syncPlaidTransactions]);
 
   useEffect(()=>{
     if(isStaticPagesHost()) {
