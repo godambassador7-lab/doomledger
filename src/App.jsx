@@ -198,6 +198,85 @@ const generateMissionSuggestions = (transactions) => {
     }),
   ];
 };
+const getCampaignState = (data) => {
+  const saved=data.members.reduce((s,m)=>s+m.contribution,0);
+  const goal=Math.max(1,data.squad.goalAmount);
+  const pct=clamp(Math.round(saved/goal*100),0,100);
+  const totalMs=Math.max(1,data.squad.deadline-data.squad.createdAt);
+  const elapsed=clamp(Date.now()-data.squad.createdAt,0,totalMs);
+  const expectedPct=clamp(Math.round(elapsed/totalMs*100),0,100);
+  const paceDelta=pct-expectedPct;
+  const daysLeft=Math.max(1,Math.ceil((data.squad.deadline-Date.now())/864e5));
+  const phase=pct>=90
+    ?{name:'Final Stand',tone:'red',objective:'Lock the vault and protect the last stretch.'}
+    :pct>=65
+      ?{name:'Siege Phase',tone:'orange',objective:'Hold weekly pace while cutting threat categories.'}
+      :pct>=35
+        ?{name:'Shield Phase',tone:'cyan',objective:'Build durable savings rhythm.'}
+        :{name:'Recon Phase',tone:'green',objective:'Map spending and secure the first checkpoint.'};
+  const pace=paceDelta>=5
+    ?{label:'Timeline Stabilized',tone:'green',delta:paceDelta}
+    :paceDelta>=-5
+      ?{label:'Holding Formation',tone:'cyan',delta:paceDelta}
+      :{label:'Invasion Accelerating',tone:'red',delta:paceDelta};
+  const recent=data.transactions.slice(0,8);
+  const positives=recent.filter(t=>t.type==='positive').length;
+  const negatives=recent.filter(t=>t.type==='negative').length;
+  const discretionary=recent.filter(t=>/FOOD|DRINK|SHOPPING|MERCHANDISE|ENTERTAINMENT|UBER|STARBUCKS|AMAZON/i.test(t.category+' '+t.merchant));
+  const streaks=[
+    {name:'Savings Streak',value:positives,detail:positives?'Recent shield gains detected':'No recent shield gains'},
+    {name:'No-Spend Streak',value:Math.max(0,5-negatives),detail:negatives?'Threat hits interrupted the streak':'No recent threat hits'},
+    {name:'Sync Streak',value:data.transactions.some(t=>t.sourceLabel)?2:1,detail:data.transactions.some(t=>t.sourceLabel)?'Signal Array data active':'Demo/manual ledger active'},
+  ];
+  const raids=[
+    {name:'Shield Deposit Raid',target:fmtCur(Math.max(25,Math.round((data.squad.mission?.pledge||100)/3))),progress:positives?70:15,reward:'+120 XP',status:positives?'active':'queued'},
+    {name:'Ration Challenge',target:'Food + shopping under '+fmtCur(Math.max(30,Math.round((data.squad.mission?.pledge||100)/2))),progress:discretionary.length?35:80,reward:'+90 XP',status:discretionary.length?'threat':'active'},
+    {name:'Signal Sync Ritual',target:'Sync all Signal Arrays',progress:data.transactions.some(t=>t.sourceLabel)?100:40,reward:'+60 XP',status:data.transactions.some(t=>t.sourceLabel)?'complete':'queued'},
+  ];
+  const threatEvents=[];
+  if(negatives>=2) threatEvents.push({name:'Impulse Breach',detail:'Multiple recent threat hits detected. Counter with a 48-hour spending freeze.',tone:'red'});
+  if(discretionary.length) threatEvents.push({name:'Supply Leak Detected',detail:'Discretionary categories are pulling shield power from the mission.',tone:'orange'});
+  if(paceDelta<-5) threatEvents.push({name:'Doom Clock Surge',detail:'Progress is behind schedule. Increase weekly pledge or extend timeline.',tone:'red'});
+  if(!threatEvents.length) threatEvents.push({name:'Sector Stable',detail:'No major threat events. Push toward the next checkpoint.',tone:'green'});
+  const operations=[
+    buildMissionSuggestion({
+      name:'7-Day Ration Challenge',
+      target:Math.max(500,Math.round(discretionary.reduce((s,t)=>s+Math.abs(t.amount),0)*4)||500),
+      saved:Math.min(saved,Math.max(100,Math.round(goal*0.08))),
+      days:7,
+      pledge:Math.max(50,Math.round((data.squad.mission?.pledge||100)*0.5)),
+      difficulty:discretionary.length?'veteran':'rookie',
+      rationale:discretionary.length?'Recent discretionary spend rose. Convert avoided spend into shield XP.':'A low-risk weekly sprint to keep momentum high.',
+    }),
+    buildMissionSuggestion({
+      name:'Emergency Buffer Upgrade',
+      target:Math.max(goal,Math.round(goal*1.15)),
+      saved,
+      days:Math.max(30,daysLeft),
+      pledge:Math.max(data.squad.mission?.pledge||100,Math.round(goal/16)),
+      difficulty:'veteran',
+      rationale:'Raises the final shield target after stable progress or new account data.',
+    }),
+    buildMissionSuggestion({
+      name:'Debt Threat Counterstrike',
+      target:Math.max(750,Math.round(Math.abs(recent.filter(t=>t.amount<0).reduce((s,t)=>s+t.amount,0))*3)),
+      saved:Math.max(25,Math.round(saved*0.15)),
+      days:30,
+      pledge:Math.max(75,Math.round((data.squad.mission?.pledge||100)*0.75)),
+      difficulty:negatives?'nightmare':'rookie',
+      rationale:'Targets recent outflows with a focused corrective mission.',
+    }),
+  ];
+  const milestones=[
+    {pct:10,name:'Signal Lock',reward:'Radar Online'},
+    {pct:25,name:'Shield Online',reward:'Debt Slayer Badge'},
+    {pct:50,name:'Debt Gate Breached',reward:'Veteran Frame'},
+    {pct:75,name:'Vault Reinforced',reward:'Shield Surge FX'},
+    {pct:90,name:'Final Stand Ready',reward:'Countdown Overdrive'},
+    {pct:100,name:'Boss Clear',reward:'Mission Complete'},
+  ];
+  return {saved,pct,expectedPct,pace,phase,raids,threatEvents,operations,streaks,milestones,daysLeft};
+};
 
 // ===== COMPONENTS =====
 
@@ -397,6 +476,70 @@ function BadgeRack({data}){
           React.createElement('div',{className:'achievement-hint'},b.hint))))));
 }
 
+function CampaignPhasePanel({campaign}){
+  return React.createElement('div',{className:'card campaign-panel'},
+    React.createElement('div',{className:'card-title'},React.createElement(IconClock),' Countdown Phase'),
+    React.createElement('div',{className:`phase-banner ${campaign.phase.tone}`},
+      React.createElement('div',null,
+        React.createElement('div',{className:'phase-name'},campaign.phase.name),
+        React.createElement('div',{className:'phase-objective'},campaign.phase.objective)),
+      React.createElement('div',{className:`pace-chip ${campaign.pace.tone}`},campaign.pace.label)),
+    React.createElement('div',{className:'phase-grid'},
+      React.createElement('div',{className:'phase-stat'},React.createElement('strong',null,campaign.pct+'%'),React.createElement('span',null,'Actual')),
+      React.createElement('div',{className:'phase-stat'},React.createElement('strong',null,campaign.expectedPct+'%'),React.createElement('span',null,'Expected')),
+      React.createElement('div',{className:'phase-stat'},React.createElement('strong',null,(campaign.pace.delta>0?'+':'')+campaign.pace.delta+'%'),React.createElement('span',null,'Pace Delta'))));
+}
+
+function MilestoneTimeline({campaign}){
+  return React.createElement('div',{className:'card'},
+    React.createElement('div',{className:'card-title'},React.createElement(IconTarget),' Checkpoint Bosses'),
+    React.createElement('div',{className:'timeline-track'},
+      campaign.milestones.map(m=>React.createElement('div',{key:m.pct,className:`timeline-node ${campaign.pct>=m.pct?'earned':campaign.pct+10>=m.pct?'next':''}`},
+        React.createElement('div',{className:'timeline-dot'},campaign.pct>=m.pct?'ON':m.pct),
+        React.createElement('div',{className:'timeline-name'},m.name),
+        React.createElement('div',{className:'timeline-reward'},m.reward)))));
+}
+
+function WeeklyRaids({campaign}){
+  return React.createElement('div',{className:'card'},
+    React.createElement('div',{className:'card-title'},React.createElement(IconZap),' Weekly Raid Missions'),
+    React.createElement('div',{className:'raid-list'},
+      campaign.raids.map(raid=>React.createElement('div',{key:raid.name,className:`raid-card ${raid.status}`},
+        React.createElement('div',{className:'raid-head'},
+          React.createElement('div',{className:'raid-name'},raid.name),
+          React.createElement('span',{className:'raid-reward'},raid.reward)),
+        React.createElement('div',{className:'raid-target'},raid.target),
+        React.createElement('div',{className:'raid-bar'},React.createElement('div',{style:{width:raid.progress+'%'}})),
+        React.createElement('div',{className:'raid-status'},raid.status.toUpperCase())))));
+}
+
+function ThreatAndStreaks({campaign}){
+  return React.createElement('div',{className:'campaign-split'},
+    React.createElement('div',{className:'card'},
+      React.createElement('div',{className:'card-title'},React.createElement(IconAlert),' Threat Events'),
+      campaign.threatEvents.map(event=>React.createElement('div',{key:event.name,className:`threat-event ${event.tone}`},
+        React.createElement('div',{className:'threat-name'},event.name),
+        React.createElement('div',{className:'threat-detail'},event.detail)))),
+    React.createElement('div',{className:'card'},
+      React.createElement('div',{className:'card-title'},React.createElement(IconShield),' Streak Systems'),
+      campaign.streaks.map(streak=>React.createElement('div',{key:streak.name,className:'streak-row'},
+        React.createElement('div',{className:'streak-value'},streak.value),
+        React.createElement('div',null,
+          React.createElement('div',{className:'streak-name'},streak.name),
+          React.createElement('div',{className:'streak-detail'},streak.detail))))));
+}
+
+function RecommendedOperations({campaign,onAccept}) {
+  return React.createElement('div',{className:'card'},
+    React.createElement('div',{className:'card-title'},React.createElement(IconTarget),' Recommended Operations'),
+    React.createElement('div',{className:'operation-grid'},
+      campaign.operations.map(op=>React.createElement('div',{key:op.name,className:'operation-card'},
+        React.createElement('div',{className:'operation-name'},op.name),
+        React.createElement('div',{className:'operation-meta'},fmtCur(op.target)+' / '+op.days+'d / '+fmtCur(op.pledge)+'/wk'),
+        React.createElement('p',{className:'operation-reason'},op.rationale),
+        React.createElement('button',{className:'mini-btn',onClick:()=>onAccept(op)},'Accept Operation')))));
+}
+
 // ===== SCREENS =====
 
 function AccountConnectScreen({onConnect,onUseDemo,plaidStatus}){
@@ -543,17 +686,21 @@ function MissionSetup({onCreate,suggestions,onBack}){
           React.createElement('div',{className:'milestone-text'},p===100?'Boss Clear':'Rank Up'))))));
 }
 
-function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,plaidStatus}){
+function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,onAcceptOperation,plaidStatus}){
   const saved=data.members.reduce((s,m)=>s+m.contribution,0);
   const days=Math.floor((data.squad.deadline-Date.now())/864e5);
   const pace=Math.max(0,(data.squad.goalAmount-saved)/Math.max(1,days));
   const you=data.members.find(m=>m.isYou);
   const mission=data.squad.mission;
   const threatClass=(mission?.threat||'Critical').toLowerCase();
+  const campaign=getCampaignState(data);
   return React.createElement('div',{className:'screen active'},
     React.createElement('div',{className:'command-grid'},
       React.createElement(DoomClock,{deadline:data.squad.deadline,goal:data.squad.goalAmount,current:saved}),
       React.createElement(QuestCard,{data,onEditGoal})),
+    React.createElement(CampaignPhasePanel,{campaign}),
+    React.createElement(MilestoneTimeline,{campaign}),
+    React.createElement(WeeklyRaids,{campaign}),
     React.createElement(SquadShield,{members:data.members,goal:data.squad.goalAmount}),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconTarget),' Mission Parameters'),
@@ -567,6 +714,8 @@ function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,plaidStatus}){
         React.createElement('div',{className:`preview-cell threat-${threatClass}`},React.createElement('div',{className:'preview-value'},mission.threat),React.createElement('div',{className:'preview-label'},'Threat')),
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},mission.xp),React.createElement('div',{className:'preview-label'},'XP')),
         React.createElement('div',{className:'preview-cell'},React.createElement('div',{className:'preview-value'},fmtCur(mission.pledge)),React.createElement('div',{className:'preview-label'},'Weekly')))),
+    React.createElement(ThreatAndStreaks,{campaign}),
+    React.createElement(RecommendedOperations,{campaign,onAccept:onAcceptOperation}),
     React.createElement(BadgeRack,{data}),
     data.alerts.map(a=>React.createElement(AlertBanner,{key:a.id,alert:a})),
     (!plaidStatus.configured||plaidStatus.staticHost)&&React.createElement('div',{className:'alert alert-warning'},
@@ -701,6 +850,11 @@ function App(){
     setHasGoal(true);
     addToast('LAUNCH','Mission deployed: '+goal.name);
   },[addToast]);
+
+  const handleAcceptOperation=useCallback(operation=>{
+    handleCreateGoal(operation);
+    addToast('OPS','Recommended operation accepted: '+operation.name);
+  },[addToast,handleCreateGoal]);
 
   const handleLogSavings=useCallback(()=>{
     const amount=100;
@@ -846,11 +1000,11 @@ function App(){
     if(!accountAnalyzed) return React.createElement(AccountConnectScreen,{onConnect:handleLinkBank,onUseDemo:handleUseDemoScan,plaidStatus});
     if(!hasGoal) return React.createElement(MissionSetup,{onCreate:handleCreateGoal,suggestions:suggestedMissions,onBack:()=>setAccountAnalyzed(false)});
     switch(tab){
-      case 'home':return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,plaidStatus});
+      case 'home':return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,onAcceptOperation:handleAcceptOperation,plaidStatus});
       case 'squad':return React.createElement(SquadScreen,{data,onVote:handleVote});
       case 'activity':return React.createElement(ActivityScreen,{data,onLinkBank:handleLinkBank});
       case 'leaderboard':return React.createElement(LeaderboardScreen,{data});
-      default:return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,plaidStatus});
+      default:return React.createElement(HomeScreen,{data,onEditGoal:()=>setHasGoal(false),onLinkBank:handleLinkBank,onLogSavings:handleLogSavings,onAcceptOperation:handleAcceptOperation,plaidStatus});
     }
   };
 
