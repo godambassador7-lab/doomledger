@@ -138,6 +138,33 @@ const getBadges = (data) => {
     {name:'Transfer Ritual',state:positives>=3?'earned':'locked',hint:'3 savings moves'},
   ];
 };
+const RANKS = [
+  {name:'Cadet',xp:0},
+  {name:'Signal Scout',xp:250},
+  {name:'Shield Corporal',xp:600},
+  {name:'Ledger Sergeant',xp:1050},
+  {name:'Vault Lieutenant',xp:1600},
+  {name:'Debt Captain',xp:2300},
+  {name:'Finance Major',xp:3200},
+  {name:'Sector Commander',xp:4400},
+  {name:'Continental Marshal',xp:5900},
+  {name:'International General',xp:7800},
+];
+const getRankState = (data, campaign) => {
+  const positiveCount=data.transactions.filter(t=>t.type==='positive').length;
+  const earnedBadges=getBadges(data).filter(b=>b.state==='earned').length;
+  const xp=Math.round((campaign?.pct||0)*55+(data.squad.mission?.xp||0)+positiveCount*90+earnedBadges*220);
+  let current=RANKS[0];
+  for(const rank of RANKS) {
+    if(xp>=rank.xp) current=rank;
+  }
+  const currentIndex=RANKS.findIndex(rank=>rank.name===current.name);
+  const next=RANKS[currentIndex+1] || null;
+  const prevXp=current.xp;
+  const nextXp=next?.xp || current.xp;
+  const progress=next?clamp(Math.round((xp-prevXp)/(nextXp-prevXp)*100),0,100):100;
+  return {xp,current,next,progress,index:currentIndex,ranks:RANKS};
+};
 const buildMissionSuggestion = ({name,target,saved,days,pledge,difficulty,rationale}) => {
   const safeTarget=Math.max(100,Math.round(target));
   const safeSaved=clamp(Math.round(saved),0,safeTarget-1);
@@ -326,11 +353,12 @@ function HeaderHud({data,hasGoal}){
   const saved=data.members.reduce((s,m)=>s+m.contribution,0);
   const shield=data.squad.goalAmount?Math.round(saved/data.squad.goalAmount*100):0;
   const threat=100-shield;
-  const xp=clamp(Math.round((data.squad.mission?.xp||0)/18),0,100);
+  const campaign=getCampaignState(data);
+  const rank=getRankState(data,campaign);
   return React.createElement('div',{className:'header-hud'},
     React.createElement(HudMetric,{label:'Net Worth Shield',value:shield+'%',pct:shield,tone:'green'}),
     React.createElement(HudMetric,{label:'Debt Threat',value:threat+'%',pct:threat,tone:threat>60?'red':'orange'}),
-    React.createElement(HudMetric,{label:'Savings XP',value:data.squad.mission?.xp||0,pct:xp,tone:'cyan'}));
+    React.createElement(HudMetric,{label:'Command Rank',value:rank.current.name,pct:rank.progress,tone:'cyan'}));
 }
 
 function DoomClock({deadline,goal,current}){
@@ -526,6 +554,26 @@ function BadgeRack({data}){
         React.createElement('div',null,
           React.createElement('div',{className:'achievement-name'},b.name),
           React.createElement('div',{className:'achievement-hint'},b.hint))))));
+}
+
+function RankPanel({rankState}){
+  return React.createElement('div',{className:'card rank-panel'},
+    React.createElement('div',{className:'card-title'},React.createElement(IconCrown),' Command Rank Ladder'),
+    React.createElement('div',{className:'rank-hero'},
+      React.createElement('div',{className:'rank-insignia'},rankState.index+1),
+      React.createElement('div',{className:'rank-copy'},
+        React.createElement('div',{className:'rank-kicker'},'Current Rank'),
+        React.createElement('div',{className:'rank-name'},rankState.current.name),
+        React.createElement('div',{className:'rank-next'},rankState.next?'Next: '+rankState.next.name+' at '+rankState.next.xp+' XP':'Maximum rank achieved')),
+      React.createElement('div',{className:'rank-xp'},rankState.xp+' XP')),
+    React.createElement('div',{className:'rank-progress'},
+      React.createElement('div',{style:{width:rankState.progress+'%'}}),
+      React.createElement('span',null,rankState.progress+'% to next rank')),
+    React.createElement('div',{className:'rank-ladder'},
+      rankState.ranks.map((rank,i)=>React.createElement('div',{key:rank.name,className:`rank-step ${i<rankState.index?'earned':i===rankState.index?'current':''}`},
+        React.createElement('span',{className:'rank-step-index'},String(i+1).padStart(2,'0')),
+        React.createElement('span',{className:'rank-step-name'},rank.name),
+        React.createElement('span',{className:'rank-step-xp'},rank.xp+' XP')))));
 }
 
 function CampaignPhasePanel({campaign}){
@@ -746,11 +794,13 @@ function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,onAcceptOperation,p
   const mission=data.squad.mission;
   const threatClass=(mission?.threat||'Critical').toLowerCase();
   const campaign=getCampaignState(data);
+  const rankState=getRankState(data,campaign);
   return React.createElement('div',{className:'screen active'},
     React.createElement('div',{className:'command-grid'},
       React.createElement(DoomClock,{deadline:data.squad.deadline,goal:data.squad.goalAmount,current:saved}),
       React.createElement(QuestCard,{data,onEditGoal})),
     React.createElement(StationUpgrade,{campaign}),
+    React.createElement(RankPanel,{rankState}),
     React.createElement(MissionDebrief,{campaign,data}),
     React.createElement(CampaignPhasePanel,{campaign}),
     React.createElement(MilestoneTimeline,{campaign}),
@@ -927,8 +977,14 @@ function App(){
       const next=clamp(current+amount,0,p.squad.goalAmount);
       const shield=p.squad.goalAmount?clamp(Math.round(next/p.squad.goalAmount*100),0,100):0;
       const milestone=getCrossedMilestone(beforePct,shield);
+      const beforeCampaign=getCampaignState(p);
+      const beforeRank=getRankState(p,beforeCampaign);
+      const previewData={...p,members:p.members.map(m=>m.isYou?{...m,contribution:next,shieldHealth:shield,efficiency:clamp(m.efficiency+0.02,0.1,1)}:m)};
+      const afterRank=getRankState(previewData,getCampaignState(previewData));
       if(milestone===100) {
         triggerVisualEffect({kind:'complete',kicker:'Final Debrief',title:'MISSION CLEARED',detail:p.squad.name+' reached full reinforcement.',reward:'+500 XP / S-Rank'});
+      } else if(afterRank.index>beforeRank.index) {
+        triggerVisualEffect({kind:'reward',kicker:'Rank Promotion',title:afterRank.current.name.toUpperCase(),detail:'Command authority increased through mission progress.',reward:afterRank.xp+' XP'});
       } else if(milestone) {
         triggerVisualEffect({kind:'reward',kicker:'Checkpoint Boss Defeated',title:milestone+'% CLEARED',detail:'Station systems upgraded at checkpoint '+milestone+'%.',reward:'+150 XP / Reward Crate Opened'});
       } else {
