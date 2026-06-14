@@ -30,7 +30,7 @@ body {
 @keyframes dangerPulse { 0%,100%{filter:drop-shadow(0 0 5px var(--accent-red))} 50%{filter:drop-shadow(0 0 20px var(--accent-red))} }
 @keyframes toastIn { from{transform:translateY(-20px);opacity:0} to{transform:translateY(0);opacity:1} }
 @keyframes progressFill { from{stroke-dashoffset:440} to{stroke-dashoffset:var(--target-offset)} }
-@keyframes splashExit { 0%,70%{opacity:1} 100%{opacity:0} }
+@keyframes splashExit { 0%,92%{opacity:1} 100%{opacity:0} }
 @keyframes gridDrift { from{background-position:0 0,0 0} to{background-position:64px 64px,0 0} }
 @keyframes loaderSweep { 0%{transform:translateX(-100%)} 100%{transform:translateX(230%)} }
 @keyframes neonFill { from{width:0} }
@@ -120,13 +120,13 @@ body {
   position: fixed; inset: 0; z-index: 3000;
   display: flex; align-items: center; justify-content: center;
   background: var(--bg-primary);
-  animation: splashExit 1.4s ease forwards;
+  animation: splashExit 5.4s ease forwards;
   pointer-events: none;
 }
 .splash-image {
-  width: 100vw;
-  height: 100vh;
-  object-fit: cover;
+  width: min(720px, 82vw);
+  max-height: 68vh;
+  object-fit: contain;
   display: block;
 }
 .splash-loader {

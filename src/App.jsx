@@ -1118,7 +1118,7 @@ function App(){
   },[tab,hasGoal]);
 
   useEffect(()=>{
-    const timeout=setTimeout(()=>setShowSplash(false),1400);
+    const timeout=setTimeout(()=>setShowSplash(false),5400);
     return()=>clearTimeout(timeout);
   },[]);
 
