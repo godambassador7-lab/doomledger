@@ -8,12 +8,30 @@ import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
-const dataDir = path.join(rootDir, '.data');
+const dataDir = process.env.VERCEL ? path.join('/tmp', 'doomledger') : path.join(rootDir, '.data');
 const statePath = path.join(dataDir, 'plaid-state.json');
 const port = Number(process.env.PORT || 5174);
+const host = process.env.HOST || '127.0.0.1';
+const allowedOrigins = (process.env.CLIENT_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 const app = express();
-app.use(cors({ origin: [/^http:\/\/127\.0\.0\.1:\d+$/, /^http:\/\/localhost:\d+$/] }));
+app.use(cors({
+  origin(origin, callback) {
+    if (
+      !origin
+      || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
+      || /^http:\/\/localhost:\d+$/.test(origin)
+      || allowedOrigins.includes(origin)
+    ) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked origin: ${origin}`));
+  },
+}));
 app.use(express.json());
 
 const plaidEnv = process.env.PLAID_ENV || 'sandbox';
@@ -231,6 +249,10 @@ app.use((error, _req, res) => {
   });
 });
 
-app.listen(port, '127.0.0.1', () => {
-  console.log(`DoomLedger API listening on http://127.0.0.1:${port}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(port, host, () => {
+    console.log(`DoomLedger API listening on http://${host}:${port}`);
+  });
+}
+
+export default app;

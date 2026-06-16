@@ -86,8 +86,10 @@ const DEMO = {
 const fmtCur = (a) => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(a);
 const clamp = (n,min,max) => Math.min(max,Math.max(min,n));
 const isStaticPagesHost = () => window.location.hostname.endsWith('github.io');
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const needsRemotePlaidApi = () => isStaticPagesHost() && !apiBaseUrl;
 async function apiRequest(path, options = {}) {
-  const response = await fetch(path, {
+  const response = await fetch(`${apiBaseUrl}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -660,7 +662,7 @@ function AccountConnectScreen({onConnect,onUseDemo,plaidStatus}){
           React.createElement('div',{className:'connect-ring ring-two'})),
         React.createElement('div',{className:'connect-title'},itemCount>0?`Signal Array ${itemCount}/${maxItems} Connected`:'Connecting to Signal Array'),
         React.createElement('p',{className:'connect-copy'},plaidStatus.staticHost
-          ?'The live GitHub Pages site cannot run the private Plaid backend. Use the demo scan here, or run npm run dev locally to connect Plaid.'
+          ?'The live GitHub Pages site needs a deployed Plaid API URL before it can open bank linking. Use the demo scan here, or run npm run dev locally.'
           :plaidStatus.configured
             ? full
               ?'Two Signal Arrays are already linked. Rescan them to refresh suggested missions.'
@@ -824,7 +826,7 @@ function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,onAcceptOperation,p
     data.alerts.map(a=>React.createElement(AlertBanner,{key:a.id,alert:a})),
     (!plaidStatus.configured||plaidStatus.staticHost)&&React.createElement('div',{className:'alert alert-warning'},
       React.createElement('span',{className:'alert-icon'},'API'),
-      React.createElement('span',{className:'alert-text'},React.createElement('strong',null,'Plaid setup needed. '),plaidStatus.staticHost?'GitHub Pages is static, so run the app locally with npm run dev to use the Plaid backend.':'Copy .env.example to .env and add your Sandbox keys before linking Signal Arrays.')),
+      React.createElement('span',{className:'alert-text'},React.createElement('strong',null,'Plaid setup needed. '),plaidStatus.staticHost?'Set VITE_API_BASE_URL for the live build so GitHub Pages can call the deployed Plaid API.':'Copy .env.example to .env and add your Sandbox keys before linking Signal Arrays.')),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconZap),' Quick Actions'),
       React.createElement('div',{className:'quick-actions'},
@@ -904,7 +906,7 @@ function App(){
   const [showSplash,setShowSplash]=useState(true);
   const [visualEffect,setVisualEffect]=useState(null);
   const [effectTone,setEffectTone]=useState('');
-  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,itemCount:0,maxItems:2,canLinkMore:true,loading:false,environment:'sandbox',products:[],items:[],staticHost:isStaticPagesHost()});
+  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,itemCount:0,maxItems:2,canLinkMore:true,loading:false,environment:'sandbox',products:[],items:[],staticHost:needsRemotePlaidApi()});
 
   const addToast=useCallback((icon,msg)=>{
     const id=Date.now()+Math.random();
@@ -1046,7 +1048,7 @@ function App(){
   },[markLedgerAnalyzed]);
 
   const refreshPlaidStatus=useCallback(async()=>{
-    if(isStaticPagesHost()) return null;
+    if(needsRemotePlaidApi()) return null;
     const status=await apiRequest('/api/plaid/status');
     setPlaidStatus(p=>({...p,...status}));
     return status;
@@ -1054,7 +1056,7 @@ function App(){
 
   const handleLinkBank=useCallback(async(forceLink=false)=>{
     if(plaidStatus.staticHost) {
-      addToast('LOCAL','Plaid requires the local backend. Run npm run dev on your machine.');
+      addToast('API URL','Set VITE_API_BASE_URL to your deployed Plaid API, then rebuild Pages.');
       return;
     }
     setPlaidStatus(p=>({...p,loading:true}));
@@ -1118,7 +1120,7 @@ function App(){
   },[addToast,data.transactions,markLedgerAnalyzed,plaidStatus,refreshPlaidStatus,syncPlaidTransactions]);
 
   useEffect(()=>{
-    if(isStaticPagesHost()) {
+    if(needsRemotePlaidApi()) {
       return;
     }
     apiRequest('/api/plaid/status')

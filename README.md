@@ -28,6 +28,33 @@ npm run build
 npm run lint
 ```
 
+## GitHub Pages Bank Linking
+
+GitHub Pages can host the DoomLedger frontend, but Plaid still requires a private backend for `link_token` creation and token exchange. Deploy `server/index.js` to a Node host such as Render, Railway, Fly.io, or a VPS, then point the Pages build at that API.
+
+Backend environment variables:
+
+```env
+PLAID_CLIENT_ID=your_plaid_client_id
+PLAID_SECRET=your_plaid_secret
+PLAID_ENV=sandbox
+PLAID_PRODUCTS=transactions
+PLAID_COUNTRY_CODES=US
+PORT=5174
+HOST=0.0.0.0
+CLIENT_ORIGINS=https://YOUR_GITHUB_USERNAME.github.io
+```
+
+If the Pages URL includes a custom domain, put that full origin in `CLIENT_ORIGINS` instead. Multiple origins can be comma-separated. The backend URL must be HTTPS for the GitHub Pages site to call it from the browser.
+
+GitHub repository variable:
+
+```env
+VITE_API_BASE_URL=https://your-deployed-doomledger-api.example.com
+```
+
+Set this as a GitHub Actions repository variable named `VITE_API_BASE_URL`, then rerun the Pages workflow. Do not add Plaid secrets to GitHub Pages or any `VITE_` variable.
+
 ## Plaid Integration Plan
 
 Do not put Plaid secrets in the React app. This repo includes a local Express backend for Plaid:
