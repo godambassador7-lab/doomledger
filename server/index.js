@@ -1,6 +1,8 @@
 import cors from 'cors';
 import 'dotenv/config';
 import express from 'express';
+import { getApps, initializeApp as initializeAdminApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +10,9 @@ import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
-const dataDir = process.env.VERCEL ? path.join('/tmp', 'doomledger') : path.join(rootDir, '.data');
+const runningInFirebase = Boolean(process.env.FUNCTION_TARGET || process.env.K_SERVICE || process.env.FIREBASE_CONFIG);
+const runningServerless = Boolean(process.env.VERCEL || runningInFirebase);
+const dataDir = runningServerless ? path.join('/tmp', 'doomledger') : path.join(rootDir, '.data');
 const statePath = path.join(dataDir, 'plaid-state.json');
 const port = Number(process.env.PORT || 5174);
 const host = process.env.HOST || '127.0.0.1';
@@ -56,7 +60,17 @@ const plaidClient = plaidConfigured
     }))
   : null;
 
+const firestore = runningInFirebase
+  ? getFirestore(getApps().length ? getApps()[0] : initializeAdminApp())
+  : null;
+const plaidStateRef = firestore?.collection('appState').doc('plaid');
+
 async function readState() {
+  if (plaidStateRef) {
+    const snapshot = await plaidStateRef.get();
+    return snapshot.exists ? snapshot.data() : {};
+  }
+
   try {
     return JSON.parse(await fs.readFile(statePath, 'utf8'));
   } catch {
@@ -65,6 +79,11 @@ async function readState() {
 }
 
 async function writeState(nextState) {
+  if (plaidStateRef) {
+    await plaidStateRef.set(nextState);
+    return;
+  }
+
   await fs.mkdir(dataDir, { recursive: true });
   await fs.writeFile(statePath, JSON.stringify(nextState, null, 2));
 }
@@ -266,7 +285,9 @@ app.use((error, _req, res, next) => {
   });
 });
 
-if (!process.env.VERCEL) {
+const runningDirectly = process.argv[1] === fileURLToPath(import.meta.url);
+
+if (!runningServerless && runningDirectly) {
   app.listen(port, host, () => {
     console.log(`DoomLedger API listening on http://${host}:${port}`);
   });

@@ -55,6 +55,30 @@ VITE_API_BASE_URL=https://your-deployed-doomledger-api.example.com
 
 Set this as a GitHub Actions repository variable named `VITE_API_BASE_URL`, then rerun the Pages workflow. Do not add Plaid secrets to GitHub Pages or any `VITE_` variable.
 
+## Firebase Hosting + Functions
+
+This repo is also configured for Firebase option 2:
+
+- Firebase Hosting serves the Vite build from `dist`.
+- `/api/**` rewrites to the `api` HTTPS Cloud Function.
+- The Cloud Function reuses `server/index.js` for Plaid routes.
+- Plaid token state is stored in Firestore when running on Firebase.
+
+Firebase Functions with secrets require the Firebase project to be on the Blaze plan. After upgrading the `doom-ledger` project, set the Plaid secrets:
+
+```bash
+firebase functions:secrets:set PLAID_CLIENT_ID --project doom-ledger
+firebase functions:secrets:set PLAID_SECRET --project doom-ledger
+```
+
+Use the Plaid Development secret for `PLAID_ENV=development`, or the Production secret for `PLAID_ENV=production`. Then deploy:
+
+```bash
+npm run deploy:firebase
+```
+
+The Firebase build uses `/` as the Vite base path so assets load correctly from `https://doom-ledger.web.app/`.
+
 ## Plaid Integration Plan
 
 Do not put Plaid secrets in the React app. This repo includes a local Express backend for Plaid:

@@ -3,11 +3,17 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "functions/index.js",
+  "engines": {
+    "node": "20"
+  },
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "client": "vite",
     "server": "node server/index.js",
     "build": "vite build",
+    "build:firebase": "vite build --base /",
+    "deploy:firebase": "npm run build:firebase && firebase deploy",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -16,6 +22,9 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "firebase": "^12.15.0",
+    "firebase-admin": "^13.10.0",
+    "firebase-functions": "^7.2.5",
     "plaid": "^42.2.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
