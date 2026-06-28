@@ -88,6 +88,11 @@ const clamp = (n,min,max) => Math.min(max,Math.max(min,n));
 const isStaticPagesHost = () => window.location.hostname.endsWith('github.io');
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const needsRemotePlaidApi = () => isStaticPagesHost() && !apiBaseUrl;
+const getPlaidEnvLabel = (environment) => {
+  if (environment === 'production') return 'Plaid Production';
+  if (environment === 'sandbox') return 'Plaid Sandbox';
+  return 'Plaid Development';
+};
 async function apiRequest(path, options = {}) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...options,
@@ -648,6 +653,7 @@ function AccountConnectScreen({onConnect,onUseDemo,plaidStatus}){
   const itemCount=plaidStatus.itemCount||0;
   const maxItems=plaidStatus.maxItems||2;
   const full=itemCount>=maxItems;
+  const plaidEnvLabel=getPlaidEnvLabel(plaidStatus.environment);
   return React.createElement('div',{className:'screen active connect-shell'},
     React.createElement('div',{className:'setup-hero'},
       React.createElement('div',{className:'setup-kicker'},'Ledger Scan Required'),
@@ -666,8 +672,8 @@ function AccountConnectScreen({onConnect,onUseDemo,plaidStatus}){
           :plaidStatus.configured
             ? full
               ?'Two Signal Arrays are already linked. Rescan them to refresh suggested missions.'
-              :'Plaid Sandbox is ready. Link up to two accounts so DoomLedger can scan transactions and suggest missions.'
-            :'Plaid keys are missing. Add them to .env, then restart npm run dev.'),
+              :`${plaidEnvLabel} is ready. Link up to two real accounts so DoomLedger can scan transactions and suggest missions.`
+            :'Plaid keys are missing. Add your Plaid client ID and secret to .env, then restart npm run dev.'),
         React.createElement('button',{className:'btn btn-primary',onClick:()=>onConnect(!full),disabled:plaidStatus.loading},
           React.createElement(IconWallet),plaidStatus.loading?'Connecting to Signal Array...':full?'Resync Signal Arrays':itemCount===1?'Connect Second Signal Array':'Connect Signal Array'),
         React.createElement('button',{className:'btn btn-secondary',onClick:onUseDemo},React.createElement(IconZap),' Use Demo Ledger Scan')),
@@ -826,7 +832,7 @@ function HomeScreen({data,onEditGoal,onLinkBank,onLogSavings,onAcceptOperation,p
     data.alerts.map(a=>React.createElement(AlertBanner,{key:a.id,alert:a})),
     (!plaidStatus.configured||plaidStatus.staticHost)&&React.createElement('div',{className:'alert alert-warning'},
       React.createElement('span',{className:'alert-icon'},'API'),
-      React.createElement('span',{className:'alert-text'},React.createElement('strong',null,'Plaid setup needed. '),plaidStatus.staticHost?'Set VITE_API_BASE_URL for the live build so GitHub Pages can call the deployed Plaid API.':'Copy .env.example to .env and add your Sandbox keys before linking Signal Arrays.')),
+      React.createElement('span',{className:'alert-text'},React.createElement('strong',null,'Plaid setup needed. '),plaidStatus.staticHost?'Set VITE_API_BASE_URL for the live build so GitHub Pages can call the deployed Plaid API.':'Add your Plaid client ID and Development or Production secret before linking Signal Arrays.')),
     React.createElement('div',{className:'card'},
       React.createElement('div',{className:'card-title'},React.createElement(IconZap),' Quick Actions'),
       React.createElement('div',{className:'quick-actions'},
@@ -906,7 +912,7 @@ function App(){
   const [showSplash,setShowSplash]=useState(true);
   const [visualEffect,setVisualEffect]=useState(null);
   const [effectTone,setEffectTone]=useState('');
-  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,itemCount:0,maxItems:2,canLinkMore:true,loading:false,environment:'sandbox',products:[],items:[],staticHost:needsRemotePlaidApi()});
+  const [plaidStatus,setPlaidStatus]=useState({configured:false,connected:false,itemCount:0,maxItems:2,canLinkMore:true,loading:false,environment:'development',products:[],items:[],staticHost:needsRemotePlaidApi()});
 
   const addToast=useCallback((icon,msg)=>{
     const id=Date.now()+Math.random();
@@ -1065,7 +1071,7 @@ function App(){
       const activeStatus={...plaidStatus,...latestStatus};
 
       if(!activeStatus.configured) {
-        throw new Error('Plaid keys are missing. Add them to .env, then restart npm run dev.');
+        throw new Error('Plaid keys are missing. Add your Plaid client ID and Development or Production secret to .env, then restart npm run dev.');
       }
 
       if(activeStatus.connected && !forceLink) {

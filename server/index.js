@@ -34,7 +34,11 @@ app.use(cors({
 }));
 app.use(express.json());
 
-const plaidEnv = process.env.PLAID_ENV || 'sandbox';
+const allowedPlaidEnvs = new Set(['sandbox', 'development', 'production']);
+const plaidEnv = process.env.PLAID_ENV || 'development';
+if (!allowedPlaidEnvs.has(plaidEnv)) {
+  throw new Error(`Unsupported PLAID_ENV "${plaidEnv}". Use sandbox, development, or production.`);
+}
 const products = (process.env.PLAID_PRODUCTS || 'transactions').split(',').map((p) => p.trim()).filter(Boolean);
 const countryCodes = (process.env.PLAID_COUNTRY_CODES || 'US').split(',').map((c) => c.trim()).filter(Boolean);
 const plaidConfigured = Boolean(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET);
@@ -66,6 +70,14 @@ async function writeState(nextState) {
 }
 
 function getPlaidItems(state) {
+  if (state.environment && state.environment !== plaidEnv) {
+    return [];
+  }
+
+  if (!state.environment && plaidEnv !== 'sandbox') {
+    return [];
+  }
+
   if (Array.isArray(state.items)) {
     return state.items.slice(0, maxPlaidItems);
   }
@@ -128,6 +140,7 @@ app.get('/api/plaid/status', async (_req, res) => {
     canLinkMore: items.length < maxPlaidItems,
     items: items.map(({ itemId, connectedAt, label }) => ({ itemId, connectedAt, label })),
     environment: plaidEnv,
+    hasStoredItemsForDifferentEnv: Boolean(state.environment && state.environment !== plaidEnv),
     products,
   });
 });
@@ -184,7 +197,7 @@ app.post('/api/exchange_public_token', requirePlaid, async (req, res, next) => {
       ? items.map((item, index) => (index === existingIndex ? { ...item, ...nextItem } : item))
       : [...items, nextItem].slice(0, maxPlaidItems);
 
-    await writeState({ items: nextItems });
+    await writeState({ environment: plaidEnv, items: nextItems });
 
     return res.json({ ok: true, item_id: response.data.item_id, item_count: nextItems.length, max_items: maxPlaidItems });
   } catch (error) {
@@ -227,7 +240,7 @@ app.get('/api/transactions', requirePlaid, async (_req, res, next) => {
       nextItems.push({ ...item, cursor: nextCursor, lastSyncAt: new Date().toISOString() });
     }
 
-    await writeState({ items: nextItems, lastSyncAt: new Date().toISOString() });
+    await writeState({ environment: plaidEnv, items: nextItems, lastSyncAt: new Date().toISOString() });
 
     return res.json({
       added,
@@ -240,11 +253,15 @@ app.get('/api/transactions', requirePlaid, async (_req, res, next) => {
   }
 });
 
-app.use((error, _req, res) => {
+app.use((error, _req, res, next) => {
+  void next;
   const plaidError = error.response?.data;
+  const message = plaidError?.error_code === 'INVALID_API_KEYS'
+    ? `Plaid rejected the ${plaidEnv} credentials. Use the ${plaidEnv} secret from the Plaid Dashboard, or set PLAID_ENV to match the secret you are using.`
+    : plaidError?.error_message || error.message || 'Unexpected server error.';
   console.error(plaidError || error);
   res.status(error.response?.status || 500).json({
-    error: plaidError?.error_message || error.message || 'Unexpected server error.',
+    error: message,
     plaid_error_code: plaidError?.error_code,
   });
 });

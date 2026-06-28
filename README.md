@@ -7,7 +7,7 @@ The current app includes:
 - Mission-style financial goal setup
 - Shield progress, threat level, XP, and milestone previews
 - Dashboard, squad, activity feed, and rankings screens
-- Placeholder bank-link action for a future Plaid integration
+- Plaid Link bank connection with transaction sync through a private backend
 
 ## Local Development
 
@@ -37,7 +37,7 @@ Backend environment variables:
 ```env
 PLAID_CLIENT_ID=your_plaid_client_id
 PLAID_SECRET=your_plaid_secret
-PLAID_ENV=sandbox
+PLAID_ENV=development
 PLAID_PRODUCTS=transactions
 PLAID_COUNTRY_CODES=US
 PORT=5174
@@ -88,12 +88,14 @@ Then fill in values from the Plaid Dashboard:
 ```env
 PLAID_CLIENT_ID=
 PLAID_SECRET=
-PLAID_ENV=sandbox
+PLAID_ENV=development
 PLAID_PRODUCTS=transactions
 PLAID_COUNTRY_CODES=US
 ```
 
-For Sandbox testing, use Plaid's Sandbox credentials in Link. For real personal bank data, switch `PLAID_ENV` and `PLAID_SECRET` to Production values after Plaid grants access.
+For real personal bank data, use `PLAID_ENV=development` with your Development secret from the Plaid Dashboard. After Plaid grants Production access, switch `PLAID_ENV=production` and use your Production secret. Sandbox is only for fake test institutions and credentials.
+
+If you previously linked sandbox accounts, restart the dev server after changing `PLAID_ENV`. Sandbox tokens cannot sync against Development or Production, so DoomLedger keeps local Plaid state separated by environment.
 
 Local Plaid state is stored in `.data/plaid-state.json`, which is ignored by Git.
 
@@ -104,5 +106,5 @@ The `Link Bank Account` button in `src/App.jsx` now:
 1. Requests a Link token from the local backend.
 2. Opens Plaid Link.
 3. Exchanges the returned public token for an access token on the backend.
-4. Syncs transactions with `/transactions/sync`.
+4. Syncs transactions with `/api/transactions`.
 5. Maps Plaid transactions into DoomLedger's activity feed.
