@@ -79,6 +79,27 @@ npm run deploy:firebase
 
 The Firebase build uses `/` as the Vite base path so assets load correctly from `https://doom-ledger.web.app/`.
 
+## Vercel Hosting + Firestore
+
+For a no-Blaze setup, deploy the Vite frontend and Express API to Vercel, then use Firestore for durable Plaid state. The server reads `FIREBASE_SERVICE_ACCOUNT` from Vercel environment variables and stores Plaid state in `appState/plaid`.
+
+Required Vercel production environment variables:
+
+```env
+PLAID_CLIENT_ID=
+PLAID_SECRET=
+PLAID_ENV=development
+PLAID_PRODUCTS=transactions
+PLAID_COUNTRY_CODES=US
+FIREBASE_SERVICE_ACCOUNT={"type":"service_account",...}
+```
+
+Deploy:
+
+```bash
+vercel --prod
+```
+
 ## Plaid Integration Plan
 
 Do not put Plaid secrets in the React app. This repo includes a local Express backend for Plaid:

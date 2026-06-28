@@ -1,7 +1,7 @@
 import cors from 'cors';
 import 'dotenv/config';
 import express from 'express';
-import { getApps, initializeApp as initializeAdminApp } from 'firebase-admin/app';
+import { cert, getApps, initializeApp as initializeAdminApp } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -11,6 +11,13 @@ import { Configuration, PlaidApi, PlaidEnvironments } from 'plaid';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, '..');
 const runningInFirebase = Boolean(process.env.FUNCTION_TARGET || process.env.K_SERVICE || process.env.FIREBASE_CONFIG);
+const firebaseServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
+  ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+  : null;
+if (firebaseServiceAccount?.private_key) {
+  firebaseServiceAccount.private_key = firebaseServiceAccount.private_key.replace(/\\n/g, '\n');
+}
+const shouldUseFirestoreState = runningInFirebase || Boolean(firebaseServiceAccount);
 const runningServerless = Boolean(process.env.VERCEL || runningInFirebase);
 const dataDir = runningServerless ? path.join('/tmp', 'doomledger') : path.join(rootDir, '.data');
 const statePath = path.join(dataDir, 'plaid-state.json');
@@ -20,6 +27,9 @@ const allowedOrigins = (process.env.CLIENT_ORIGINS || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const vercelOrigins = [process.env.VERCEL_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]
+  .filter(Boolean)
+  .flatMap((hostName) => [`https://${hostName}`, `http://${hostName}`]);
 
 const app = express();
 app.use(cors({
@@ -29,6 +39,7 @@ app.use(cors({
       || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin)
       || /^http:\/\/localhost:\d+$/.test(origin)
       || allowedOrigins.includes(origin)
+      || vercelOrigins.includes(origin)
     ) {
       return callback(null, true);
     }
@@ -60,8 +71,12 @@ const plaidClient = plaidConfigured
     }))
   : null;
 
-const firestore = runningInFirebase
-  ? getFirestore(getApps().length ? getApps()[0] : initializeAdminApp())
+const firestore = shouldUseFirestoreState
+  ? getFirestore(getApps().length
+      ? getApps()[0]
+      : initializeAdminApp(firebaseServiceAccount
+        ? { credential: cert(firebaseServiceAccount), projectId: firebaseServiceAccount.project_id }
+        : undefined))
   : null;
 const plaidStateRef = firestore?.collection('appState').doc('plaid');
 
